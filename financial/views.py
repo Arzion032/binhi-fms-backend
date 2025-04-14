@@ -38,9 +38,9 @@ def add_transaction(request):
 def del_transaction(request):
     
     transaction_id = request.data.get("id")
-    t=transaction = Financials.objects.get(id=transaction_id)
+    transaction = Financials.objects.get(id=transaction_id)
     transaction.delete()
-    return Response({"message":f"Item {t} deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+    return Response({"message":f"Item deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
             
           
