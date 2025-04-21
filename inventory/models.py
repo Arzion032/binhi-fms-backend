@@ -1,25 +1,31 @@
 from django.db import models
 import uuid
 from users.models import CustomUser
+from django.utils.text import slugify
 # Create your models here.
 
 class InventoryItems(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False, null=False)
-    admin_id = models.ForeignKey(
+    admin = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
         related_name='inventory'),
     item_name = models.TextField(blank=False, null=False)
+    slug = models.SlugField(unique=True, blank=True, null=True)
     rental_price = models.DecimalField(max_digits=10, decimal_places=2, blank=False, null=False)
     quantity = models.IntegerField(blank=False, null=False)
     available = models.IntegerField(blank=False, null=False)
     rented = models.IntegerField(blank=False, null=False, default=0)
-    unit = models.CharField(max_length=50, blank=True)
     category = models.CharField(max_length=50, blank=True)
     description = models.CharField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.item_name)
+        super().save(*args, **kwargs)
+        
 class InventoryRental(models.Model):
     STATUS_CHOICES = [
         ('rented', 'Rented'),
@@ -27,7 +33,7 @@ class InventoryRental(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    admin_id = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='inventory_rentals')
+    admin = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='inventory_rentals')
     item = models.ForeignKey(InventoryItems, on_delete=models.CASCADE, related_name='rentals')
     renter_name = models.CharField(max_length=255)
     contact_number = models.CharField(max_length=15)
