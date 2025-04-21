@@ -26,10 +26,10 @@ class CustomUser(models.Model):
 
 # This is the User Profiles   
 class UserProfile(models.Model):
-    user_id = models.OneToOneField('CustomUser', on_delete=models.CASCADE, primary_key=True, related_name='profile')  
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, primary_key=True, related_name='profile')  
     full_name = models.TextField(blank=False, null=False)
     address = models.TextField(blank=False, null=False)
-    profile_picture = models.ImageField(upload_to='profile_pictures/', blank=False, null=False)
+    profile_picture = models.TextField(blank=False, null=False)
     other_details = models.JSONField(blank=True, null=True)  
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

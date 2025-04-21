@@ -10,16 +10,16 @@ class Financials(models.Model):
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False, null=False)
-    admin_id = models.ForeignKey(
+    admin = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
         related_name='transactions')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, blank=False, null=False)
     type = models.CharField(max_length=20, choices=transaction_type, blank=False, null=False)
     description = models.TextField(blank=False, null=False)
     source = models.TextField(blank=False, null=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=False, null=False)
     
     def __str__(self):
-        return f"{self.type} - {self.amount} by {self.admin_id.username}"
+        return f"{self.type} - {self.amount} by {self.admin.username}"
     
