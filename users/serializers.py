@@ -19,3 +19,8 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = '__all__'
+        
+class SignupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['contact_no', 'username', 'password', 'email', 'role']
