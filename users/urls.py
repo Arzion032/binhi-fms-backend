@@ -27,6 +27,11 @@ urlpatterns = [
          name="update_member"),
      path('user_with_profile/<uuid:user_id>/', 
           views.get_user_with_profile, 
-          name='user_with_profile'),
-
+          name="user_with_profile"),
+     path("request-verification/", 
+          views.request_email_verification,
+          name="request-verification"),
+     path("verify-email/", 
+          views.verify_email,
+          name="verify-email")
 ]

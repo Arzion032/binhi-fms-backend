@@ -2,11 +2,15 @@ from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from .models import CustomUser, UserProfile
-from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer
+from .models import CustomUser, UserProfile, VerifiedEmail
+from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.conf import settings
+from django.core.mail import send_mail
+import uuid
 # Create your views here.
 
 
@@ -111,3 +115,44 @@ def get_user_with_profile(request, user_id):
     user = get_object_or_404(CustomUser, id=user_id)
     serializer = UserWithProfileSerializer(user)
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def request_email_verification(request):
+    try:
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=400)
+
+        # generate fake token just for demo purposes
+        token = str(uuid.uuid4())
+
+        verification_link = f"http://localhost:8000/verify-email/?token={token}&email={email}"
+
+        # in real world: store token and validate it later
+        send_mail(
+            subject="Verify your email",
+            message=f"Click the link to verify: {verification_link}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+        return Response({'message': 'Verification link sent!'}, status=200)
+    except Exception as e:
+        return Response({"error": {e}})
+    
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verify_email(request):
+    email = request.GET.get('email')
+    # token = request.GET.get('token')  # add token checking here
+
+    if not email:
+        return Response({'error': 'Invalid request'}, status=400)
+
+    # Save to VerifiedEmail table
+    VerifiedEmail.objects.get_or_create(email=email)
+
+    return Response({'message': 'Email verified successfully'}, status=200)

@@ -22,7 +22,14 @@ class CustomUser(models.Model):
     
     def __str__(self):
         return self.username
-
+    
+        # CONTACT NO validation
+        """
+           def validate_contact_no(self, value):
+        if not re.match(r'^09/d{9}$', value):
+            raise serializers.ValidationError("Enter a valid PH contact number (e.g., 09171234567).")
+        return value
+        """
 
 # This is the User Profiles   
 class UserProfile(models.Model):
@@ -36,3 +43,7 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return self.full_name
+    
+class VerifiedEmail(models.Model):
+    email = models.EmailField(unique=True)
+    verified_at = models.DateTimeField(auto_now_add=True)
