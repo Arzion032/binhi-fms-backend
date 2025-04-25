@@ -27,38 +27,23 @@ class SignupSerializer(serializers.ModelSerializer):
         fields = ['contact_no', 'username', 'password', 'email', 'role']
         
 
-
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework import serializers
-from django.contrib.auth.hashers import check_password
- # adjust import if needed
-
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    def validate(self, attrs):
-        email = attrs.get("email")
-        password = attrs.get("password")
-
-        try:
-            user = CustomUser.objects.get(email=email)
-        except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("Invalid email or password")
-
-        if not check_password(password, user.password):
-            raise serializers.ValidationError("Invalid email or password")
-
-        # generate JWT tokens manually since we're not using AbstractUser
-        data = super().get_token(user)
-        return {
-            "access": str(data.access_token),
-            "refresh": str(data),
-            "user_id": str(user.id),
-            "email": user.email,
-            "role": user.role,
-        }
-
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        # Add custom claims
         token["email"] = user.email
         token["role"] = user.role
         return token
+        
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        
+        # Add extra responses here
+        data.update({
+            "user_id": str(self.user.id),
+            "email": self.user.email,
+            "role": self.user.role,
+        })
+        
+        return data
