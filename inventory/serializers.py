@@ -34,9 +34,9 @@ class InventoryItemSerializer(serializers.ModelSerializer):
 
         return data
 
-
-
 class InventoryRentalsSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryRental
         fields = '__all__'
+        
+    

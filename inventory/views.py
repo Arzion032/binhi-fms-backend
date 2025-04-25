@@ -97,3 +97,8 @@ def return_item(request, rental_id):
 
         return Response({"detail": "Item successfully returned."}, status=status.HTTP_200_OK)
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def signup(request):
+    
+    user = request.data
