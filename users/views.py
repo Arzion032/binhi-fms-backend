@@ -10,6 +10,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.conf import settings
 from django.core.mail import send_mail
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 import uuid
 # Create your views here.
 
@@ -120,17 +122,28 @@ def get_user_with_profile(request, user_id):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def request_email_verification(request):
-    try:
-        email = request.data.get('email')
-        if not email:
-            return Response({'error': 'Email is required'}, status=400)
+    email = request.data.get('email')
 
-        # generate fake token just for demo purposes
-        token = str(uuid.uuid4())
+    # Validate email is present
+    if not email:
+        return Response({'error': 'Email is required'}, status=400)
+
+    # Validate format
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({"error": "Invalid email format"}, status=400)
+
+    # Check if email already verified
+    if VerifiedEmail.objects.filter(email=email).exists():
+        return Response({"error": "Email already exists"}, status=409)
+
+    try:
+        # Generate and send verification token
+        token = str(uuid.uuid4())  # Demo token, not stored
 
         verification_link = f"http://localhost:8000/verify-email/?token={token}&email={email}"
 
-        # in real world: store token and validate it later
         send_mail(
             subject="Verify your email",
             message=f"Click the link to verify: {verification_link}",
@@ -140,8 +153,10 @@ def request_email_verification(request):
         )
 
         return Response({'message': 'Verification link sent!'}, status=200)
+
     except Exception as e:
-        return Response({"error": {e}})
+        return Response({"error": str(e)}, status=500)
+
     
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -156,3 +171,31 @@ def verify_email(request):
     VerifiedEmail.objects.get_or_create(email=email)
 
     return Response({'message': 'Email verified successfully'}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def signup(request):
+    email = request.data.get('email')
+
+    # 1. Check if email is valid
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({"error": "Invalid email format"}, status=400)
+
+    # 2. Check if email is verified
+    if not VerifiedEmail.objects.filter(email=email).exists():
+        return Response({"error": "Email is not verified."}, status=status.HTTP_403_FORBIDDEN)
+    
+    # 3. Validate and create user
+    serializer = UserSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            "message": "User created successfully",
+            "user": serializer.data,
+            "user_id": serializer.data['id']
+        }, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

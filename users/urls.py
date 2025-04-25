@@ -33,5 +33,8 @@ urlpatterns = [
           name="request-verification"),
      path("verify-email/", 
           views.verify_email,
-          name="verify-email")
+          name="verify-email"),
+     path("signup/",
+          views.signup,
+          name="signup")
 ]
