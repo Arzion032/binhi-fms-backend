@@ -1,27 +1,59 @@
-from django.shortcuts import render
-from rest_framework import viewsets
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
 from .models import CustomUser, UserProfile, VerifiedEmail
-from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer
-from rest_framework.permissions import AllowAny
-from rest_framework import status
+from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer, CustomTokenObtainPairSerializer
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework import status
+from .serializers import CustomTokenObtainPairSerializer
 import uuid
+
+
 # Create your views here.
-
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def members(request):
-    users = CustomUser.objects.all()
+    users = CustomUser.objects.filter(is_approved=True, is_active=True)
     serializer = UserSerializer(users, many=True)
     return Response(serializer.data)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def pending_members(request):
+    """
+    Pending members
+    """
+    pending_users = CustomUser.objects.filter(
+        is_rejected=False,
+        is_approved=False,
+        is_active=False
+    )
+    
+    serializer = UserSerializer(pending_users, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def rejected_members(request):
+    """
+    Rejected members
+    """
+    rejected_users = CustomUser.objects.filter(
+        is_rejected=True,
+        is_approved=False,
+        is_active=False
+    )
+    serializer = UserSerializer(rejected_users, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -188,14 +220,107 @@ def signup(request):
     if not VerifiedEmail.objects.filter(email=email).exists():
         return Response({"error": "Email is not verified."}, status=status.HTTP_403_FORBIDDEN)
     
-    # 3. Validate and create user
+    # 3. Validate user data
     serializer = UserSerializer(data=request.data)
     if serializer.is_valid():
-        serializer.save()
+        # 4. Create user with proper password hashing
+        user = CustomUser.objects.create_user(
+            email=serializer.validated_data['email'],
+            username=serializer.validated_data['username'],
+            contact_no=serializer.validated_data['contact_no'],
+            role=serializer.validated_data['role'],
+            password=request.data.get('password')  # This will be hashed by create_user
+        )
+        
+        # 5. Return serialized user without password
+        user_data = UserSerializer(user).data
         return Response({
             "message": "User created successfully",
-            "user": serializer.data,
-            "user_id": serializer.data['id']
+            "user": user_data,
+            "user_id": user_data['id']
         }, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError:
+            return Response(
+                {"error": "Invalid credentials. Please check your email and password."}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        except Exception:
+            return Response(
+                {"error": "Invalid credentials. Please check your email and password."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+class ProtectedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "message": "You have access to this protected view!",
+            "user_email": request.user.email,
+            "user_id": str(request.user.id)
+        })
+        
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_view(request):
+    try:
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({"success": "Logged out successfully"}, status=status.HTTP_205_RESET_CONTENT)
+        else:
+            return Response({"error": "Refresh token is required"}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def accept_member(request, user_id):
+    
+    try: 
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        user.is_approved = True
+        user.is_active = True
+        user.is_rejected = False
+
+        user.save()
+        
+        return Response({"message" : f"User {user.username} approved successfully."})
+    
+    except Exception as e:
+        return Response({"error":{e}}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def reject_member(request, user_id):
+    
+    try: 
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        user.is_rejected = True
+        user.is_approved = False
+        user.is_active = False
+
+        user.save()
+        
+        return Response({"message" : f"User {user.username} has been declined."})
+    
+    except Exception as e:
+        return Response({"error":{e}}, status=status.HTTP_400_BAD_REQUEST)
+

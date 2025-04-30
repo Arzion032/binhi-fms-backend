@@ -1,12 +1,19 @@
-from django.urls import path, include
+from django.urls import path
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenRefreshView
+from users.views import CustomTokenObtainPairView
 from . import views
-
 
 urlpatterns = [
      path("members/",
          views.members,
          name="members"),
+     path("pending_members",
+          views.pending_members,
+          name="pending_members"),
+     path("rejected_members",
+          views.rejected_members,
+          name="rejected_members"),
      path("add_members/",
          views.add_members,
          name="add_member"),
@@ -36,5 +43,23 @@ urlpatterns = [
           name="verify-email"),
      path("signup/",
           views.signup,
-          name="signup")
+          name="signup"),
+     path('api/token/',
+          CustomTokenObtainPairView.as_view(), 
+          name='token_obtain_pair'),
+     path('api/token/refresh/', 
+          TokenRefreshView.as_view(), 
+          name='token_refresh'),
+     path('api/protected/', 
+          views.ProtectedView.as_view(), 
+          name='protected_view'),
+     path('api/logout/', 
+          views.logout_view, 
+          name='logout'),
+     path('accept_member/<uuid:user_id>/', 
+          views.accept_member, 
+          name="accept_member"),
+     path('reject_member/<uuid:user_id>/', 
+          views.reject_member, 
+          name="reject_member"),
 ]
