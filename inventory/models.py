@@ -7,9 +7,11 @@ from django.utils.text import slugify
 class InventoryItems(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False, null=False)
     admin = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        related_name='inventory'),
+        'users.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='inventory_items'
+    )
     item_name = models.TextField(blank=False, null=False)
     slug = models.SlugField(unique=True, blank=True, null=True)
     rental_price = models.DecimalField(max_digits=10, decimal_places=2, blank=False, null=False)
