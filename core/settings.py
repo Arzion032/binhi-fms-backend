@@ -34,6 +34,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    
 }
 
 ALLOWED_HOSTS = []
@@ -52,10 +53,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'users',
     'financial',
-    'inventory'
+    'inventory',
+    'products'
 ]
 
 MIDDLEWARE = [
@@ -151,7 +154,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'norjag032@gmail.com'
-EMAIL_HOST_PASSWORD = 'vtcx velw ipje zndz'  # Not your Gmail password! Use App Password
+EMAIL_HOST_PASSWORD = 'vtcx velw ipje zndz'  
 AUTH_USER_MODEL = "users.CustomUser"
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -160,7 +163,9 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(hours=12),
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ROTATE_REFRESH_TOKENS': True,
 }

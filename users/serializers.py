@@ -47,3 +47,4 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         })
         
         return data
+    
