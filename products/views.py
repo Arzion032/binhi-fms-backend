@@ -4,9 +4,14 @@ from rest_framework import status
 from .models import Product
 from .serializers import ProductSerializer
 from django.shortcuts import get_object_or_404
+from rest_framework.permissions import AllowAny
+from users.models import CustomUser
+from rest_framework.decorators import api_view, permission_classes
+
 
 # GET all products
 class GetProducts(APIView):
+    permission_classes = [AllowAny]
     def get(self, request):
         
         user_id = request.query_params.get('user_id')  # Change 'user' to 'user_id' or whatever is passed
@@ -25,15 +30,33 @@ class GetProducts(APIView):
     
 # ADD a new product
 class AddProduct(APIView):
+    permission_classes = [AllowAny]  # Currently, no authentication, anyone can access
+
     def post(self, request):
+        # Get the vendor (user) from request body or pass it directly as a parameter
+        vendor_id = str(request.data.get('vendor', None))  # Expecting 'vendor' field in the request body
+        if vendor_id:
+            try:
+                vendor = CustomUser.objects.get(id=vendor_id)
+            except CustomUser.DoesNotExist:
+                return Response({"error": "Vendor not found"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"error": "Vendor not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create the product 
         serializer = ProductSerializer(data=request.data)
+        
         if serializer.is_valid():
-            serializer.save(vendor=request.user)  # Automatically assign the logged-in user as vendor
+
+            serializer.save()  # Save the product
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # UPDATE an existing product
 class UpdateProduct(APIView):
+    permission_classes = [AllowAny]
     def put(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
 
@@ -49,6 +72,7 @@ class UpdateProduct(APIView):
 
 # DELETE a product
 class DeleteProduct(APIView):
+    permission_classes = [AllowAny]
     def delete(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
 
