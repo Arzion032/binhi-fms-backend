@@ -1,13 +1,13 @@
-from rest_framework import serializers
+from rest_framework import serializers, viewsets
 from .models import Category, Product, ProductImage, Review
 from users.models import CustomUser 
+from django.utils.text import slugify
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = [
-            'id', 'name', 'slug', 'description',
-            'created_at', 'updated_at'
-        ]
+        fields = '__all__'
+        read_only_fields = ['id', 'slug']
 
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:

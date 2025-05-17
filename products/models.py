@@ -4,16 +4,43 @@ from users.models import CustomUser
 from django.utils.text import slugify
 import uuid
 
+def generate_unique_slug(instance, field_value, slug_field_name='slug'):
+    """
+    Generate a unique slug for a model instance.
+    """
+    base_slug = slugify(field_value)
+    slug = base_slug
+    ModelClass = instance.__class__
+    n = 1
+
+    # Check for duplicates
+    while ModelClass.objects.filter(**{slug_field_name: slug}).exclude(pk=instance.pk).exists():
+        slug = f"{base_slug}-{n}"
+        n += 1
+
+    return slug
+
 class Category(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True)
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(unique=True, blank=True,null=True)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name_plural = 'Categories'
+        
+    def name_has_changed(self):
+        if not self.pk:
+            return True
+        original = Category.objects.filter(pk=self.pk).first()
+        return original and original.name != self.name
+        
+    def save(self, *args, **kwargs):
+        if not self.slug or self.name_has_changed():
+            self.slug = generate_unique_slug(self, self.name)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -25,6 +52,7 @@ class Product(models.Model):
         ('hidden', 'Hidden'),
         ('pending_approval', 'Pending Approval'),
         ('deleted', 'Deleted'),
+        ('rejected', 'Rejected')
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -49,9 +77,16 @@ class Product(models.Model):
         return self.name
     
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name)
+        if not self.slug or self.name_has_changed():
+            self.slug = generate_unique_slug(self, self.name)
         super().save(*args, **kwargs)
+
+    def name_has_changed(self):
+        if not self.pk:
+            return True
+        original = Product.objects.filter(pk=self.pk).first()
+        return original and original.name != self.name
+
 
 class ProductImage(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

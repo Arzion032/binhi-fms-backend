@@ -23,8 +23,8 @@ from django.urls import path
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('users.urls')),
-    path('', include('financial.urls')),
-    path('', include('inventory.urls')),
-    path('', include('products.urls')),
+    path('users/', include('users.urls')),
+    path('financials/', include('financial.urls')),
+    path('inventory/', include('inventory.urls')),
+    path('products/', include('products.urls')),
 ]
