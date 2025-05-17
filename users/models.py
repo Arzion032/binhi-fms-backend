@@ -12,6 +12,8 @@ class CustomUserManager(BaseUserManager):
             username=username,
             contact_no=contact_no,
             role=role,
+            if role == 'buyer':
+                is_approved = True
         )
         user.set_password(password)  # This hashes the password
         user.save(using=self._db)

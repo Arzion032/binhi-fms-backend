@@ -58,7 +58,8 @@ INSTALLED_APPS = [
     'users',
     'financial',
     'inventory',
-    'products'
+    'products',
+    'orders'
 ]
 
 MIDDLEWARE = [
@@ -155,6 +156,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'norjag032@gmail.com'
 EMAIL_HOST_PASSWORD = 'vtcx velw ipje zndz'  
+
 AUTH_USER_MODEL = "users.CustomUser"
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

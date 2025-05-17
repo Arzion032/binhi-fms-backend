@@ -7,8 +7,8 @@ from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
@@ -58,7 +58,13 @@ def rejected_members(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def add_members(request):
-    serializer = UserSerializer(data=request.data)
+    
+    user = request.data.copy()
+    user['is_approved'] = True
+    user['is_active'] = True
+    user['is_rejected'] = False
+    
+    serializer = UserSerializer(data=user)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -71,28 +77,27 @@ def add_members(request):
         }, status=status.HTTP_201_CREATED)
         
         """
-        
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-@api_view(['PUT'])
+@api_view(['PATCH'])
 @permission_classes([AllowAny])
 def update_member(request, user_id):
     user = get_object_or_404(CustomUser, id=user_id)
 
-    serializer = UserSerializer(user, data=request.data, partial=True)  # partial=True makes PUT behave more like PATCH
+    serializer = UserSerializer(user, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['POST'])
+@api_view(['DELETE'])
 @permission_classes([AllowAny])
 def delete_members(request,user_id):
     
     user= CustomUser.objects.get(id=user_id)
     user.delete()
     return Response({"message": f"User deleted successfully"})
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -174,7 +179,7 @@ def request_email_verification(request):
         # Generate and send verification token
         token = str(uuid.uuid4())  # Demo token, not stored
 
-        verification_link = f"http://localhost:8000/verify-email/?token={token}&email={email}"
+        verification_link = f"http://localhost:8000/users/verify-email/?token={token}&email={email}"
 
         send_mail(
             subject="Verify your email",
@@ -241,7 +246,10 @@ def signup(request):
         }, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
+
     serializer_class = CustomTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
