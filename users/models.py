@@ -7,13 +7,14 @@ class CustomUserManager(BaseUserManager):
         if not email:
             raise ValueError('Users must have an email address')
         
+        is_approved = True if role == 'buyer' else False
+        
         user = self.model(
             email=self.normalize_email(email),
             username=username,
             contact_no=contact_no,
             role=role,
-            if role == 'buyer':
-                is_approved = True
+            is_approved = is_approved
         )
         user.set_password(password)  # This hashes the password
         user.save(using=self._db)
