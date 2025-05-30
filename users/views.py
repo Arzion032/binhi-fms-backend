@@ -1,5 +1,5 @@
 from .models import CustomUser, UserProfile, VerifiedEmail
-from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer, CustomTokenObtainPairSerializer
+from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer, CustomTokenObtainPairSerializer, AddressSerializer
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.conf import settings
@@ -15,6 +15,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import CustomTokenObtainPairSerializer
+from django.db import transaction
+from django.contrib.auth.hashers import make_password
 import uuid
 
 
@@ -58,31 +60,41 @@ def rejected_members(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def add_members(request):
-    
-    user = request.data.copy()
-    user['is_approved'] = True
-    user['is_active'] = True
-    user['is_rejected'] = False
-    
-    serializer = UserSerializer(data=user)
+    user_data = request.data.copy()
+    user_data['is_approved'] = True
+    user_data['is_active'] = True
+    user_data['is_rejected'] = False
+
+    password = user_data.get('password')
+    if password:
+        
+        hashed_password = make_password(password)
+        user_data['password'] = hashed_password 
+
+   
+    serializer = UserSerializer(data=user_data)
     if serializer.is_valid():
+
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-        """ 
-        Another Option:
-        return Response({
-            "message": "User created successfully",
-            "user": serializer.data,
-            "user_id": serializer.data['id']
-        }, status=status.HTTP_201_CREATED)
-        
-        """
+
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 @api_view(['PATCH'])
 @permission_classes([AllowAny])
 def update_member(request, user_id):
     user = get_object_or_404(CustomUser, id=user_id)
 
+    # If password is provided, hash it before saving
+    if 'password' in request.data:
+        password = request.data['password']
+        user.set_password(password)  # Hash the password using Django's set_password method
+
+        # Manually update the password in the serializer data to ensure the hashed password is used
+        request.data['password'] = user.password  # Set the hashed password into the request data
+
+    # Now, update the user data. Do not include the raw password, since it's already hashed.
     serializer = UserSerializer(user, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
@@ -212,6 +224,7 @@ def verify_email(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@transaction.atomic
 def signup(request):
     email = request.data.get('email')
 
@@ -233,11 +246,25 @@ def signup(request):
             email=serializer.validated_data['email'],
             username=serializer.validated_data['username'],
             contact_no=serializer.validated_data['contact_no'],
-            role=serializer.validated_data['role'],
-            password=request.data.get('password')  # This will be hashed by create_user
+            role='buyer',
+            password=request.data.get('password'),
         )
-        
-        # 5. Return serialized user without password
+
+        # 5. Create address (optional: check if address data exists in request)
+        address_data = request.data.get('address')
+        if address_data:
+            address_serializer = AddressSerializer(data=address_data)
+            if address_serializer.is_valid():
+                address_serializer.save(user=user)
+            else:
+                # Clean up by deleting user if address fails
+                user.delete()
+                return Response(
+                    {"error": "Address is invalid", "details": address_serializer.errors},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 6. Return serialized user without password
         user_data = UserSerializer(user).data
         return Response({
             "message": "User created successfully",
@@ -331,4 +358,3 @@ def reject_member(request, user_id):
     
     except Exception as e:
         return Response({"error":{e}}, status=status.HTTP_400_BAD_REQUEST)
-

@@ -7,16 +7,27 @@ class CustomUserManager(BaseUserManager):
         if not email:
             raise ValueError('Users must have an email address')
         
-        is_approved = True if role == 'buyer' else False
+        if role == 'buyer':
+            is_approved = True
+            is_active = True
+            is_rejected = False
+        
+        else:
+            is_approved = False
+            is_active = False
+            is_rejected = False
         
         user = self.model(
             email=self.normalize_email(email),
             username=username,
             contact_no=contact_no,
             role=role,
-            is_approved = is_approved
+            is_approved = is_approved,
+            is_active = is_active,
+            is_rejected = is_rejected,
         )
-        user.set_password(password)  # This hashes the password
+        
+        user.set_password(password)  
         user.save(using=self._db)
         return user
     
@@ -70,7 +81,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 class UserProfile(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, primary_key=True, related_name='profile')  
     full_name = models.TextField(blank=False, null=False)
-    address = models.TextField(blank=False, null=False)
     profile_picture = models.TextField(blank=False, null=False)
     other_details = models.JSONField(blank=True, null=True)  
     created_at = models.DateTimeField(auto_now_add=True)
@@ -79,6 +89,26 @@ class UserProfile(models.Model):
     def __str__(self):
         return self.full_name
     
+    
 class VerifiedEmail(models.Model):
     email = models.EmailField(unique=True)
     verified_at = models.DateTimeField(auto_now_add=True)
+    
+
+class Address(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='addresses')
+    region = models.CharField(max_length=50)
+    province = models.CharField(max_length=50)
+    city = models.CharField(max_length=50)
+    barangay = models.CharField(max_length=100)
+    street_address = models.CharField(max_length=255)
+    postal_code = models.CharField(max_length=10, blank=True)   
+    landmark = models.CharField(max_length=255, blank=True)     
+   
+
+    def __str__(self):
+        return f"{self.user.username}: {self.street_address}, {self.barangay}, {self.city}"
+
+
+
+
