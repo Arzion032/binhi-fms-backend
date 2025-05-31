@@ -1,4 +1,4 @@
-from .models import CustomUser, UserProfile, VerifiedEmail
+from .models import CustomUser, UserProfile, VerifiedEmail, Address
 from .serializers import UserSerializer, UserProfileSerializer, UserWithProfileSerializer, SignupSerializer, CustomTokenObtainPairSerializer, AddressSerializer
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -142,7 +142,7 @@ def create_member_profile(request,user_id):
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['PUT'])
+@api_view(['PATCH'])
 @permission_classes([AllowAny])
 def update_member_profile(request, user_id):
     user = get_object_or_404(CustomUser, id=user_id)
@@ -152,13 +152,32 @@ def update_member_profile(request, user_id):
     except UserProfile.DoesNotExist:
         return Response({"error": "Profile does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
-    serializer = UserProfileSerializer(profile, data=request.data, partial=True)  # PATCH-like behavior with PUT
+    profile_serializer = UserProfileSerializer(profile, data=request.data, partial=True)
 
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    # Address update logic (same as before)
+    address_data = request.data.get('address', None)
+    address_response = {}
+    if address_data:
+        try:
+            address = user.addresses
+            address_serializer = AddressSerializer(address, data=address_data, partial=True)
+        except Address.DoesNotExist:
+            address_serializer = AddressSerializer(data={**address_data, "user": user.id})
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if address_serializer.is_valid():
+            address_instance = address_serializer.save(user=user)
+            address_response = AddressSerializer(address_instance).data
+        else:
+            return Response({"error": "Address is invalid", "details": address_serializer.errors}, status=400)
+
+    if profile_serializer.is_valid():
+        profile_serializer.save()
+        response_data = profile_serializer.data
+        if address_response:
+            response_data["address"] = address_response
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
