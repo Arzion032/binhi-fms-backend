@@ -93,7 +93,7 @@ class AddProduct(APIView):
             print("Request files:", request.FILES)
             
             # Validate required fields
-            required_fields = ['name', 'description', 'category']
+            required_fields = ['name', 'description', 'category', 'vendor_id']
             missing_fields = [
                 field for field in required_fields 
                 if field not in request.data or not str(request.data.get(field)).strip()
@@ -102,126 +102,83 @@ class AddProduct(APIView):
                 print("Missing required fields:", missing_fields)
                 return Response({
                     'error': 'Missing required fields',
-                    'missing_fields': missing_fields
+                    'details': f'Required fields missing: {", ".join(missing_fields)}',
+                    'received_data': {k: v for k, v in request.data.items() if k in required_fields}
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # Validate category
             try:
                 category = Category.objects.get(id=request.data['category'])
                 print("Category found:", category.name)
-            except (Category.DoesNotExist, ValueError):
-                print("Invalid category ID:", request.data['category'])
+            except (Category.DoesNotExist, ValueError) as e:
+                print("Category error:", str(e))
                 return Response({
                     'error': 'Invalid category',
-                    'details': 'Category not found or invalid UUID'
+                    'details': 'Category not found or invalid UUID',
+                    'received_category': request.data.get('category')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get vendor
+            try:
+                vendor = CustomUser.objects.get(id=request.data['vendor_id'])
+                print("Vendor found:", vendor.username)
+            except (CustomUser.DoesNotExist, ValueError) as e:
+                print("Vendor error:", str(e))
+                return Response({
+                    'error': 'Invalid vendor',
+                    'details': 'Vendor not found or invalid UUID',
+                    'received_vendor_id': request.data.get('vendor_id')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate images
+            if not request.FILES.getlist('images'):
+                return Response({
+                    'error': 'Missing images',
+                    'details': 'At least one image is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # Prepare product data
             product_data = {
                 'name': request.data['name'].strip(),
                 'description': request.data['description'].strip(),
-                'category': category.id,
-                'status': 'pending_approval',
-                'is_available': True,
-                'vendor': UUID('d3004d02-d2f7-4980-968b-860691790486')
+                'category': category,
+                'vendor': vendor,
+                'status': 'published'
             }
 
             # Add farmer_code if provided
             if request.data.get('farmer_code'):
                 product_data['farmer_code'] = request.data['farmer_code'].strip()
 
-            print("Creating product with data:", product_data)
-
             # Create product
-            serializer = ProductSerializer(data=product_data)
-            if not serializer.is_valid():
-                print("Serializer validation errors:", serializer.errors)
-                return Response({
-                    'error': 'Validation error',
-                    'details': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
+            product = Product.objects.create(**product_data)
+            print("Product created:", product.name)
 
-            print("Before serializer.save() - product_data being sent:", product_data)
-            product = serializer.save()
-            print("After serializer.save() - product status:", product.status)
-            print("Product created successfully with ID:", product.id)
-
-            # Handle images
-            images = request.FILES.getlist('images')
-            images_data = request.data.get('images', [])
-            
-            # If no files uploaded but we have image data
-            if not images and images_data:
-                try:
-                    # Handle image data from request
-                    for image_data in images_data:
-                        if isinstance(image_data, dict) and 'image' in image_data:
-                            # Create ProductImage with the provided URL
-                            ProductImage.objects.create(
-                                product=product,
-                                image=image_data['image'],
-                                is_main=image_data.get('is_main', False)
-                            )
-                    print(f"Created {len(images_data)} product images from data")
-                except Exception as e:
-                    print("Error creating images from data:", str(e))
-                    return Response({
-                        'error': 'Error creating images',
-                        'details': str(e)
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            # Handle file uploads
-            elif images:
-                for image in images:
-                    ProductImage.objects.create(product=product, image=image)
-                print(f"Created {len(images)} product images from files")
-            else:
-                print("No images provided")
-                return Response({
-                    'error': 'No images provided',
-                    'details': 'At least one image is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            # Handle variations if provided
-            variations_data = request.data.get('variations', [])
-            print("Received variations data:", variations_data)
+            # Handle variations
+            variations_data = request.data.get('variations')
             if variations_data:
                 try:
-                    variations = json.loads(variations_data) if isinstance(variations_data, str) else variations_data
-                    print("Parsed variations:", variations)
-                    if not isinstance(variations, list):
-                        print("Invalid variations format - not a list")
-                        return Response({
-                            'error': 'Invalid variations format',
-                            'details': 'Variations must be a list'
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
+                    variations = json.loads(variations_data)
                     for variation in variations:
-                        variation['product'] = product.id
-                        variation_serializer = ProductVariationSerializer(data=variation)
-                        if variation_serializer.is_valid():
-                            variation_serializer.save()
-                            print(f"Created variation: {variation.get('name')}")
-                        else:
-                            print("Variation validation errors:", variation_serializer.errors)
-                            return Response({
-                                'error': 'Invalid variation data',
-                                'details': variation_serializer.errors
-                            }, status=status.HTTP_400_BAD_REQUEST)
+                        variation['product'] = product
+                        ProductVariation.objects.create(**variation)
                 except json.JSONDecodeError:
-                    print("Failed to parse variations JSON")
+                    print("Invalid variations JSON")
                     return Response({
-                        'error': 'Invalid variations format',
-                        'details': 'Could not parse variations JSON'
+                        'error': 'Invalid variations data',
+                        'details': 'Variations data must be valid JSON'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-            print("=== Product Creation Complete ===\n")
-            return Response(ProductSerializer(product).data, status=status.HTTP_201_CREATED)
+            # Handle images
+            for image_file in request.FILES.getlist('images'):
+                ProductImage.objects.create(product=product, image=image_file)
+
+            # Serialize and return response
+            serializer = ProductSerializer(product)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print("Error creating product:", str(e))
-            print("Exception type:", type(e).__name__)
-            import traceback
-            print("Traceback:", traceback.format_exc())
+            print("Unexpected error:", str(e))
             return Response({
                 'error': 'Server error',
                 'details': str(e)

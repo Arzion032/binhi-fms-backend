@@ -16,9 +16,37 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'is_main', 'uploaded_at']
 
 class ProductVariationSerializer(serializers.ModelSerializer):
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), required=True)
+    
     class Meta:
         model = ProductVariation
         fields = ['id', 'name', 'unit_price', 'stock', 'unit_measurement', 'is_available', 'is_default', 'product']
+        read_only_fields = ['id']
+
+    def validate(self, data):
+        # Check if this is a new variation or an update
+        if self.instance:
+            # For updates, check if name is being changed
+            if 'name' in data and data['name'] != self.instance.name:
+                # Check if the new name would conflict with another variation
+                if ProductVariation.objects.filter(
+                    product=self.instance.product,
+                    name=data['name']
+                ).exclude(id=self.instance.id).exists():
+                    raise serializers.ValidationError({
+                        'name': 'A variation with this name already exists for this product.'
+                    })
+        else:
+            # For new variations, check if name already exists
+            if 'product' in data and 'name' in data:
+                if ProductVariation.objects.filter(
+                    product=data['product'],
+                    name=data['name']
+                ).exists():
+                    raise serializers.ValidationError({
+                        'name': 'A variation with this name already exists for this product.'
+                    })
+        return data
 
 class ReviewSerializer(serializers.ModelSerializer):
     buyer_username = serializers.ReadOnlyField(source='buyer.username')
@@ -31,27 +59,31 @@ class ReviewSerializer(serializers.ModelSerializer):
         ]
 
 class ProductSerializer(serializers.ModelSerializer):
-    variations = ProductVariationSerializer(many=True)
+    variations = ProductVariationSerializer(many=True, required=False)
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
     images = ProductImageSerializer(many=True, required=False)
     category_name = serializers.ReadOnlyField(source='category.name')
     vendor_name = serializers.ReadOnlyField(source='vendor.username')
     vendor_code = serializers.ReadOnlyField(source='vendor.farmer_code')
     association = serializers.ReadOnlyField(source='vendor.association.name')
+    association_id = serializers.ReadOnlyField(source='vendor.association.id')
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'slug', 'description', 'category', 'category_name',
-            'vendor', 'vendor_name', 'vendor_code', 'association',
+            'vendor', 'vendor_name', 'vendor_code', 'association', 'association_id',
             'status', 'is_available',
             'created_at', 'updated_at', 'variations', 'images'
         ]
-        read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'vendor', 'vendor_name', 'vendor_code', 'association', 'category_name']
+        read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'vendor', 'vendor_name', 'vendor_code', 'association', 'association_id', 'category_name']
 
     def create(self, validated_data):
         variations_data = self.context.get('variations', [])
         images_data = self.context.get('images', [])
+        
+        # Remove variations from validated_data if present
+        validated_data.pop('variations', None)
         
         product = Product.objects.create(**validated_data)
         
