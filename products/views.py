@@ -319,22 +319,76 @@ class DeleteProduct(APIView):
 # Batch delete products
 class BatchDeleteProducts(APIView):
     permission_classes = [AllowAny]
-    
-    def post(self, request):
-        product_ids = request.data.get('ids', [])
-        if not product_ids:
-            return Response(
-                {"error": "No product IDs provided"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+
+    def delete(self, request):
+        try:
+            print("\n=== Batch Delete Request ===")
+            print("Query params:", request.query_params)
             
-        # Delete products
-        deleted_count = Product.objects.filter(id__in=product_ids).delete()[0]
-        
-        return Response({
-            "message": f"Successfully deleted {deleted_count} products",
-            "deleted_count": deleted_count
-        })
+            # Get product IDs from query parameters
+            product_ids_str = request.query_params.get('product_ids', '')
+            if not product_ids_str:
+                return Response({
+                    'error': 'No products selected',
+                    'details': 'Please select at least one product to delete'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Split the comma-separated string into a list
+            product_ids = product_ids_str.split(',')
+            print("Product IDs received:", product_ids)
+            
+            # Convert string IDs to UUID objects
+            try:
+                product_ids = [UUID(str(id)) for id in product_ids]
+                print("Converted UUIDs:", product_ids)
+            except ValueError as e:
+                print("UUID conversion error:", str(e))
+                return Response({
+                    'error': 'Invalid product ID',
+                    'details': str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get all products
+            products = Product.objects.filter(id__in=product_ids)
+            print("Found products:", products.count())
+
+            # Delete the products one by one to handle potential constraints
+            deleted_count = 0
+            failed_deletions = []
+            
+            for product in products:
+                try:
+                    # Delete associated variations first
+                    ProductVariation.objects.filter(product=product).delete()
+                    # Delete associated images
+                    ProductImage.objects.filter(product=product).delete()
+                    # Delete the product
+                    product.delete()
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Failed to delete product {product.id}:", str(e))
+                    failed_deletions.append(str(product.id))
+
+            # Prepare response
+            response_data = {
+                'message': f'Successfully deleted {deleted_count} products',
+                'deleted_count': deleted_count
+            }
+
+            if failed_deletions:
+                response_data['warning'] = f'Failed to delete {len(failed_deletions)} products due to database constraints'
+                response_data['failed_ids'] = failed_deletions
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print("Error in batch delete:", str(e))
+            import traceback
+            print("Traceback:", traceback.format_exc())
+            return Response({
+                'error': 'Failed to delete products',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
