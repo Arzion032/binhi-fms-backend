@@ -2,6 +2,7 @@ from rest_framework import serializers, viewsets
 from .models import Category, Product, ProductImage, Review, ProductVariation
 from users.models import CustomUser 
 from django.utils.text import slugify
+from django.core.files.uploadedfile import InMemoryUploadedFile, UploadedFile
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -30,8 +31,9 @@ class ReviewSerializer(serializers.ModelSerializer):
         ]
 
 class ProductSerializer(serializers.ModelSerializer):
-    variations = ProductVariationSerializer(many=True, read_only=True)
-    images = ProductImageSerializer(many=True, read_only=True)
+    variations = ProductVariationSerializer(many=True)
+    category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
+    images = ProductImageSerializer(many=True, required=False)
     category_name = serializers.ReadOnlyField(source='category.name')
     vendor_name = serializers.ReadOnlyField(source='vendor.username')
     vendor_code = serializers.ReadOnlyField(source='vendor.farmer_code')
@@ -42,10 +44,10 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'slug', 'description', 'category', 'category_name',
             'vendor', 'vendor_name', 'vendor_code', 'association',
-            'status', 'is_available', 'created_at', 'updated_at',
-            'variations', 'images'
+            'status', 'is_available',
+            'created_at', 'updated_at', 'variations', 'images'
         ]
-        read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'vendor', 'vendor_name', 'vendor_code', 'association', 'category_name']
 
     def create(self, validated_data):
         variations_data = self.context.get('variations', [])
@@ -72,16 +74,77 @@ class ProductSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         
-        # Update variations if provided
-        if variations_data:
-            instance.variations.all().delete()
-            for variation_data in variations_data:
-                ProductVariation.objects.create(product=instance, **variation_data)
-                
-        # Update images if provided
-        if images_data:
-            instance.images.all().delete()
-            for image_data in images_data:
-                ProductImage.objects.create(product=instance, **image_data)
+        # Handle variations: update existing, create new, delete removed
+        current_variation_ids = set()
+        for variation_data_raw in variations_data:
+            print(f"[Serializer Debug] variation_data_raw: {variation_data_raw}")
+            print(f"[Serializer Debug] Type of variation_data_raw: {type(variation_data_raw)}")
+            variation_data = variation_data_raw.copy() # Make a copy to modify
+            variation_id = variation_data.pop('id', None) # Pop id for update/create logic
+            variation_data.pop('image_file_key', None) # Remove image_file_key (if present from frontend)
+
+            if variation_id:
+                try:
+                    variation = ProductVariation.objects.get(id=variation_id, product=instance)
+                    variation_serializer = ProductVariationSerializer(instance=variation, data=variation_data, partial=True)
+                    if variation_serializer.is_valid(raise_exception=True):
+                        variation_serializer.save()
+                    current_variation_ids.add(variation_id)
+                except ProductVariation.DoesNotExist:
+                    # If ID is provided but doesn't exist for this product, treat as new creation
+                    # (or raise an error if strict ID matching is required)
+                    print(f"Warning: Variation with ID {variation_id} not found for product {instance.id}. Creating as new.")
+                    variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': instance.id})
+                    if variation_serializer.is_valid(raise_exception=True):
+                        new_variation = variation_serializer.save()
+                        current_variation_ids.add(str(new_variation.id))
+            else:
+                # Create new variation
+                variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': instance.id})
+                if variation_serializer.is_valid(raise_exception=True):
+                    new_variation = variation_serializer.save()
+                    current_variation_ids.add(str(new_variation.id))
+
+        # Delete variations that were not in the updated data
+        ProductVariation.objects.filter(product=instance).exclude(id__in=list(current_variation_ids)).delete()
+
+        # Handle images: update existing, create new, delete removed
+        current_image_ids = set()
+        for image_data_raw in images_data:
+            image_data = image_data_raw.copy()
+            image_id = image_data.pop('id', None)
+            
+            # Check if the 'image' field is a file object (new upload) or a URL string (existing)
+            image_is_file = isinstance(image_data.get('image'), (InMemoryUploadedFile, UploadedFile))
+
+            if image_id:
+                try:
+                    image_instance = ProductImage.objects.get(id=image_id, product=instance)
+                    
+                    serializer_data = image_data.copy() # Start with all data
+                    
+                    if not image_is_file: # If it's not a file (it's a URL string), remove the image field from data for partial update
+                        serializer_data.pop('image', None)
+                    
+                    image_serializer = ProductImageSerializer(instance=image_instance, data=serializer_data, partial=True)
+                    if image_serializer.is_valid(raise_exception=True):
+                        image_serializer.save()
+                    current_image_ids.add(image_id)
+                except ProductImage.DoesNotExist:
+                    print(f"Warning: Image with ID {image_id} not found for product {instance.id}. Creating as new.")
+                    if image_is_file: # Only create as new if there's a file to upload
+                        image_serializer = ProductImageSerializer(data={**image_data, 'product': instance.id})
+                        if image_serializer.is_valid(raise_exception=True):
+                            new_image = image_serializer.save()
+                            current_image_ids.add(str(new_image.id))
+            else:
+                # Create new image only if image_is_file is True (it's a new file upload)
+                if image_is_file:
+                    image_serializer = ProductImageSerializer(data={**image_data, 'product': instance.id})
+                    if image_serializer.is_valid(raise_exception=True):
+                        new_image = image_serializer.save()
+                        current_image_ids.add(str(new_image.id))
+
+        ProductImage.objects.filter(product=instance).exclude(id__in=list(current_image_ids)).delete()
                 
         return instance

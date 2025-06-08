@@ -23,13 +23,16 @@ class GetProducts(APIView):
         user_id = request.query_params.get('user_id')
         status = request.query_params.get('status')
         category = request.query_params.get('category')
-        search = request.query_params.get('search')
+        search = request.query_params.get('search', None)
         summarize = request.query_params.get('summarize', 'false').lower() == 'true'
         page = int(request.query_params.get('page', 1))
         per_page = int(request.query_params.get('per_page', 7))
         
+        print(f"[Backend Log] Received category: {category}, search: {search}")
+
         # Start with all products
         products = Product.objects.all()
+        print(f"[Backend Log] Products before filtering: {products.count()}")
 
         # Apply filters
         if user_id:
@@ -40,13 +43,17 @@ class GetProducts(APIView):
             
         if category:
             products = products.filter(category__name=category)
+            print(f"[Backend Log] Products after category filter: {products.count()}")
             
         if search:
+            # Query the related UserProfile model for the full_name
             products = products.filter(
                 Q(name__icontains=search) |
                 Q(description__icontains=search) |
-                Q(vendor__get_full_name__icontains=search)
+                Q(category__name__icontains=search) |
+                Q(vendor__profile__full_name__icontains=search)
             )
+            print(f"[Backend Log] Products after search filter: {products.count()}")
 
         # Calculate pagination ONLY if not in summarize mode
         if not summarize:
@@ -227,22 +234,102 @@ class UpdateProduct(APIView):
     def put(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
         
-        # Extract variations and images from request data
-        variations_data = request.data.pop('variations', [])
-        images_data = request.data.pop('images', [])
+        # Prepare data for serializer - request.data will be a QueryDict for multipart/form-data
+        # We need to handle variations and images specially as they are stringified JSON arrays
+
+        variations_data = []
+        variations_raw = request.data.get('variations')
+        if variations_raw:
+            if isinstance(variations_raw, str):
+                try:
+                    parsed_variations = json.loads(variations_raw)
+                    if isinstance(parsed_variations, list):
+                        for item in parsed_variations:
+                            if isinstance(item, dict):
+                                variations_data.append(item)
+                    elif isinstance(parsed_variations, dict):
+                        variations_data.append(parsed_variations)
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(variations_raw, list):
+                for item in variations_raw:
+                    if isinstance(item, str):
+                        try:
+                            parsed_item = json.loads(item)
+                            if isinstance(parsed_item, dict):
+                                variations_data.append(parsed_item)
+                        except json.JSONDecodeError:
+                            pass
+                    elif isinstance(item, dict):
+                        variations_data.append(item)
+
+        images_data = []
+        images_raw = request.data.get('images')
+        if images_raw:
+            if isinstance(images_raw, str):
+                try:
+                    parsed_images = json.loads(images_raw)
+                    if isinstance(parsed_images, list):
+                        for item in parsed_images:
+                            if isinstance(item, dict):
+                                images_data.append(item)
+                    elif isinstance(parsed_images, dict):
+                        images_data.append(parsed_images)
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(images_raw, list):
+                for item in images_raw:
+                    if isinstance(item, str):
+                        try:
+                            parsed_item = json.loads(item)
+                            if isinstance(parsed_item, dict):
+                                images_data.append(parsed_item)
+                        except json.JSONDecodeError:
+                            pass
+                    elif isinstance(item, dict):
+                        images_data.append(item)
         
+        # Handle new image files from request.FILES and attach them to the correct variation/image data
+        for key, file in request.FILES.items():
+            if key.startswith('variations_new_image_'):
+                for variation in variations_data:
+                    if variation.get('image_file_key') == key:
+                        variation['image'] = file
+                        break
+            elif key.startswith('images_new_image_'):
+                for image_item in images_data:
+                    if image_item.get('image_file_key') == key:
+                        image_item['image'] = file
+                        break
+
+        # Create a mutable copy of request.data for top-level fields for the serializer
+        mutable_data = request.data.copy()
+        # Remove variations and images from mutable_data as they are handled via context
+        mutable_data.pop('variations', None)
+        mutable_data.pop('images', None)
+
+        print(f"[Debug] Full request.data: {request.data}")
+        print(f"[Debug] Variations data before serializer: {variations_data}")
+        print(f"[Debug] Type of variations_data: {type(variations_data)}")
+        print(f"[Debug] Images data before serializer: {images_data}")
+        print(f"[Debug] Type of images_data: {type(images_data)}")
+
         serializer = ProductSerializer(
             product,
-            data=request.data,
+            data=mutable_data,
             context={'variations': variations_data, 'images': images_data},
             partial=True
         )
         
+        print(f"[Debug] Is serializer valid? {serializer.is_valid()}")
         if serializer.is_valid():
+            print("[Debug] Serializer is valid, saving product.")
             product = serializer.save()
             return Response(ProductSerializer(product).data)
-            
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            print("[Debug] Serializer is NOT valid.")
+            print("Serializer errors:", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class AcceptProduct(APIView):
     permission_classes = [AllowAny]
