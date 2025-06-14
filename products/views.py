@@ -146,9 +146,9 @@ class AddProduct(APIView):
                 'status': 'published'
             }
 
-            # Add farmer_code if provided
-            if request.data.get('farmer_code'):
-                product_data['farmer_code'] = request.data['farmer_code'].strip()
+            # Add farmer_id if provided
+            if request.data.get('farmer_id'):
+                product_data['farmer_id'] = request.data['farmer_id'].strip()
 
             # Create product
             product = Product.objects.create(**product_data)

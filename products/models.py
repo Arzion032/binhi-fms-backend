@@ -61,7 +61,7 @@ class Product(models.Model):
     slug = models.SlugField(unique=True, blank=True, null=True)
     description = models.TextField()
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='products', blank=True, null=True)
-    farmer_code = models.CharField(max_length=50, blank=True, null=True)
+    farmer_id = models.CharField(max_length=50, blank=True, null=True)
     vendor = models.ForeignKey(
         'users.CustomUser',
         on_delete=models.CASCADE,
