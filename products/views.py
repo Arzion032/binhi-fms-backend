@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from users.models import CustomUser
 from rest_framework.decorators import api_view, permission_classes
 from django.db.models import Q
+from association.models import Farmer
 import json
 from uuid import UUID
 
@@ -129,6 +130,18 @@ class AddProduct(APIView):
                     'details': 'Vendor not found or invalid UUID',
                     'received_vendor_id': request.data.get('vendor_id')
                 }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Get farmer
+            try:
+                farmer = Farmer.objects.get(id=request.data['farmer_code'])
+                print("Vendor found:", vendor.username)
+            except (Farmer.DoesNotExist, ValueError) as e:
+                print("Vendor error:", str(e))
+                return Response({
+                    'error': 'Invalid farmer',
+                    'details': 'Farmer not found or invalid UUID',
+                    'received_farmer_id': request.data.get('farmer_id')
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             # Validate images
             if not request.FILES.getlist('images'):
@@ -143,12 +156,10 @@ class AddProduct(APIView):
                 'description': request.data['description'].strip(),
                 'category': category,
                 'vendor': vendor,
-                'status': 'published'
+                'status': 'published',
+                'farmer': farmer
             }
 
-            # Add farmer_code if provided
-            if request.data.get('farmer_code'):
-                product_data['farmer_code'] = request.data['farmer_code'].strip()
 
             # Create product
             product = Product.objects.create(**product_data)

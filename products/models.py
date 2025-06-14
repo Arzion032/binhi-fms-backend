@@ -7,6 +7,7 @@ from supabase import create_client, Client
 from django.conf import settings
 from dotenv import load_dotenv
 from datetime import datetime
+from association.models import Farmer
 import uuid, os
 
 load_dotenv()
@@ -72,6 +73,13 @@ class Product(models.Model):
         on_delete=models.CASCADE,
         limit_choices_to={'role': 'farmer'},
         related_name='products'
+    )
+    farmer = models.ForeignKey(
+        'association.Farmer', 
+        on_delete=models.CASCADE, 
+        related_name='products',
+        blank=True, 
+        null=True
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='published')
     is_available = models.BooleanField(default=True)
