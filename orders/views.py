@@ -138,20 +138,25 @@ class ConfirmCheckoutView(APIView):
         }, status=status.HTTP_201_CREATED)
         
 class OrderHistoryView(APIView):
-
     def get(self, request):
-        # If user is not authenticated or is superuser, show all orders
         if not request.user.is_authenticated or request.user.is_superuser:
             orders = Order.objects.all().order_by('-created_at')
         else:
             orders = Order.objects.filter(buyer=request.user).order_by('-created_at')
 
-        # Serialize orders
         serializer = OrderSerializer(orders, many=True)
-
-        # Transform data to match the required response format
         order_history = []
         for order in serializer.data:
+            # Defensive: items list could be empty
+            items = order.get("items", [])
+            first_item = items[0] if items else {}
+            product = first_item.get("product", {}) if isinstance(first_item.get("product", {}), dict) else {}
+
+            product_info = {
+                "name": product.get("name", ""),
+                "variation": first_item.get("variation", ""),
+                "image": product.get("image", ""),
+            }
             order_data = {
                 'id': order['id'],
                 'orderId': order['order_identifier'],
@@ -160,47 +165,22 @@ class OrderHistoryView(APIView):
                 'shipping_address': order['shipping_address'],
                 'payment_method': order['payment_method'],
                 'orderDate': order['created_at'],
-                'items': [],
+                'items': items,
+                'product': product_info,  # always present!
                 'sellerName': '',
                 'sellerProfile': '',
                 'deliveryAddress': {
-                    'name': order['shipping_address'],  # You can map this better if you split address into name, phone, etc.
-                    'phone': '',  # Placeholder for phone number if available
+                    'name': order['shipping_address'],
+                    'phone': '',
                     'address': order['shipping_address'],
                 },
+                'payment_status': order.get('payment_status', 'Pending'),
             }
-
-            # Populate items for this order
-            for item in order['items']:
-                item_data = {
-                    'name': item['product']['name'],
-                    'image': item['product']['images'][0] if item['product']['images'] else None,
-                    'quantity': item['quantity'],
-                    'price': item['unit_price'],
-                    'variation': item['variation'],
-                }
-                order_data['items'].append(item_data)
-
-            # Get seller details
-            if order['items']:
-                seller_id = order['items'][0]['product']['vendor']
-                try:
-                    seller = CustomUser.objects.get(id=seller_id)
-                    order_data['sellerName'] = seller.username
-                    if hasattr(seller, 'profile'):
-                        order_data['sellerProfile'] = seller.profile.profile_picture
-                    else:
-                        order_data['sellerProfile'] = None
-                except CustomUser.DoesNotExist:
-                    order_data['sellerName'] = 'Unknown'
-                    order_data['sellerProfile'] = None
-
             order_history.append(order_data)
 
-        # Optional: print for debugging
-        # pretty_order_history = json.dumps(order_history, indent=4)
-        # print(pretty_order_history)
-
+        # Debug print to confirm
+        import pprint
+        pprint.pprint(order_history)
         return Response(order_history)
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -401,8 +381,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 # ---- PATCH APIs for Order and Transaction Status ----
 
 class OrderStatusPatchView(APIView):
-    permission_classes = [AllowAny]
-
     def patch(self, request, pk):
         try:
             order = Order.objects.get(pk=pk)
@@ -410,17 +388,28 @@ class OrderStatusPatchView(APIView):
             return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         new_status = request.data.get('status')
-        if new_status not in dict(Order.STATUS_CHOICES):
-            return Response({'error': 'Invalid status value.'}, status=status.HTTP_400_BAD_REQUEST)
+        payment_status = request.data.get('payment_status')
 
-        if order.status != new_status:
-            order.status = new_status
+        updated = False
+
+        if new_status and new_status.lower() in dict(Order.STATUS_CHOICES):
+            if order.status != new_status:
+                order.status = new_status
+                updated = True
+
+        # PATCH the payment_status in related transaction if it exists
+        if payment_status and hasattr(order, 'transaction') and order.transaction:
+            if order.transaction.status != payment_status:
+                order.transaction.status = payment_status
+                order.transaction.save()
+                updated = True
+
+        if updated:
             order.save()
-            # Add to status history
-            OrderStatusHistory.objects.create(order=order, status=new_status)
 
         serializer = OrderSerializer(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 class MarketTransactionStatusPatchView(APIView):
     permission_classes = [AllowAny]

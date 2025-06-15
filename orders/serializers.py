@@ -23,14 +23,22 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
-    buyer = UserSerializer(read_only=True)  # Or serializers.StringRelatedField()
+    buyer = UserSerializer(read_only=True)
+    payment_status = serializers.SerializerMethodField()  # <-- ADD THIS
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_identifier', 'buyer', 'status', 'total_price', 'shipping_address', 
-            'payment_method', 'created_at', 'updated_at', 'items', 'status_history'
+            'payment_method', 'created_at', 'updated_at', 'items', 'status_history', 'payment_status'
         ]
+
+    def get_payment_status(self, obj):
+        # Example: If you have it on MarketTransaction
+        if hasattr(obj, 'transaction') and obj.transaction:
+            return obj.transaction.status.capitalize()
+        return "Pending"
+
 
 class MarketTransactionSerializer(serializers.ModelSerializer):
     buyer = UserSerializer(read_only=True)
