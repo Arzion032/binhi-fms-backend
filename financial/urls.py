@@ -15,4 +15,7 @@ urlpatterns = [
     path("del_transaction/",
          views.del_transaction,
          name="del_transaction"),
+    path("statistics/",
+         views.get_statistics,
+         name="get_statistics"),
 ]

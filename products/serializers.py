@@ -107,9 +107,10 @@ class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, required=False)
     category_name = serializers.ReadOnlyField(source='category.name')
     vendor_name = serializers.ReadOnlyField(source='vendor.username')
-    vendor_code = serializers.ReadOnlyField(source='vendor.farmer_code')
+    vendor_code = serializers.ReadOnlyField(source='vendor.id')
     association = serializers.ReadOnlyField(source='vendor.association.name')
     association_id = serializers.ReadOnlyField(source='vendor.association.id')
+    farmer_id = serializers.ReadOnlyField()
 
     class Meta:
         model = Product
@@ -117,7 +118,8 @@ class ProductSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'description', 'category', 'category_name',
             'vendor', 'vendor_name', 'vendor_code', 'association', 'association_id',
             'status', 'is_available',
-            'created_at', 'updated_at', 'variations', 'images', 'farmer'
+            'created_at', 'updated_at', 'variations', 'images', 'farmer', 'farmer_id'
+
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'vendor', 'vendor_name', 'vendor_code', 'association', 'association_id', 'category_name']
 

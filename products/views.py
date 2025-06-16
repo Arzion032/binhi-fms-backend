@@ -162,6 +162,10 @@ class AddProduct(APIView):
             }
 
 
+            # Add farmer_id if provided
+            if request.data.get('farmer_id'):
+                product_data['farmer_id'] = request.data['farmer_id'].strip()
+
             # Create product
             product = Product.objects.create(**product_data)
             print("Product created:", product.name)
@@ -493,8 +497,4 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return Response({
             'detail': f'Category {instance.name} deleted successfully.'
         }, status=status.HTTP_200_OK)
-    
-    
-    
-    
     
