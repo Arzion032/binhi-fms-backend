@@ -2,10 +2,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, viewsets
 from .models import Product, Category, ProductVariation, ProductImage
-from .serializers import ProductSerializer, CategorySerializer, ProductVariationSerializer
+from .serializers import ProductSerializer, CategorySerializer, ProductVariationSerializer, ProductImageSerializer
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from users.models import CustomUser
+from django.core.files.uploadedfile import InMemoryUploadedFile, UploadedFile
 from rest_framework.decorators import api_view, permission_classes
 from django.db.models import Q
 from association.models import Farmer
@@ -133,8 +134,8 @@ class AddProduct(APIView):
                 
                 # Get farmer
             try:
-                farmer = Farmer.objects.get(id=request.data['farmer_code'])
-                print("Vendor found:", vendor.username)
+                farmer = Farmer.objects.get(id=request.data['farmer_id'])
+                print("Vendor found:", farmer.full_name)
             except (Farmer.DoesNotExist, ValueError) as e:
                 print("Vendor error:", str(e))
                 return Response({
@@ -182,7 +183,7 @@ class AddProduct(APIView):
 
             # Handle images
             for image_file in request.FILES.getlist('images'):
-                ProductImage.objects.create(product=product, image=image_file)
+                ProductImage.objects.create(product=product, image_file=image_file)
 
             # Serialize and return response
             serializer = ProductSerializer(product)
@@ -293,6 +294,75 @@ class UpdateProduct(APIView):
         if serializer.is_valid():
             print("[Debug] Serializer is valid, saving product.")
             product = serializer.save()
+
+            # Handle variations: update existing, create new, delete removed
+            current_variation_ids = set()
+            for variation_data_raw in variations_data:
+                variation_data = variation_data_raw.copy()  # Make a copy to modify
+                variation_id = variation_data.pop('id', None)  # Pop id for update/create logic
+                variation_data.pop('image_file_key', None)  # Remove image_file_key (if present from frontend)
+
+                if variation_id:
+                    try:
+                        variation = ProductVariation.objects.get(id=variation_id, product=product)
+                        variation_serializer = ProductVariationSerializer(instance=variation, data=variation_data, partial=True)
+                        if variation_serializer.is_valid(raise_exception=True):
+                            variation_serializer.save()
+                        current_variation_ids.add(variation_id)
+                    except ProductVariation.DoesNotExist:
+                        print(f"Warning: Variation with ID {variation_id} not found for product {product.id}. Creating as new.")
+                        variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': product.id})
+                        if variation_serializer.is_valid(raise_exception=True):
+                            new_variation = variation_serializer.save()
+                            current_variation_ids.add(str(new_variation.id))
+                else:
+                    variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': product.id})
+                    if variation_serializer.is_valid(raise_exception=True):
+                        new_variation = variation_serializer.save()
+                        current_variation_ids.add(str(new_variation.id))
+
+            # Delete variations that were not in the updated data
+            ProductVariation.objects.filter(product=product).exclude(id__in=list(current_variation_ids)).delete()
+
+            # Handle images: update existing, create new, delete removed
+            current_image_ids = set()
+            for image_data_raw in images_data:
+                image_data = image_data_raw.copy()
+                image_id = image_data.pop('id', None)
+                
+                # Check if the 'image' field is a file object (new upload) or a URL string (existing)
+                image_is_file = isinstance(image_data.get('image'), (InMemoryUploadedFile, UploadedFile))
+
+                if image_id:
+                    try:
+                        image_instance = ProductImage.objects.get(id=image_id, product=product)
+                        
+                        serializer_data = image_data.copy()  # Start with all data
+                        
+                        if not image_is_file:  # If it's not a file (it's a URL string), remove the image field from data for partial update
+                            serializer_data.pop('image', None)
+                        
+                        image_serializer = ProductImageSerializer(instance=image_instance, data=serializer_data, partial=True)
+                        if image_serializer.is_valid(raise_exception=True):
+                            image_serializer.save()
+                        current_image_ids.add(image_id)
+                    except ProductImage.DoesNotExist:
+                        print(f"Warning: Image with ID {image_id} not found for product {product.id}. Creating as new.")
+                        if image_is_file:  # Only create as new if there's a file to upload
+                            image_serializer = ProductImageSerializer(data={**image_data, 'product': product.id})
+                            if image_serializer.is_valid(raise_exception=True):
+                                new_image = image_serializer.save()
+                                current_image_ids.add(str(new_image.id))
+                else:
+                    # Create new image only if image_is_file is True (it's a new file upload)
+                    if image_is_file:
+                        image_serializer = ProductImageSerializer(data={**image_data, 'product': product.id})
+                        if image_serializer.is_valid(raise_exception=True):
+                            new_image = image_serializer.save()
+                            current_image_ids.add(str(new_image.id))
+
+            ProductImage.objects.filter(product=product).exclude(id__in=list(current_image_ids)).delete()
+
             return Response(ProductSerializer(product).data)
         else:
             print("[Debug] Serializer is NOT valid.")
@@ -327,7 +397,6 @@ class DeleteProduct(APIView):
         product.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-# Batch delete products
 class BatchDeleteProducts(APIView):
     permission_classes = [AllowAny]
 
@@ -335,52 +404,43 @@ class BatchDeleteProducts(APIView):
         try:
             print("\n=== Batch Delete Request ===")
             print("Query params:", request.query_params)
-            
-            # Get product IDs from query parameters
-            product_ids_str = request.query_params.get('product_ids', '')
-            if not product_ids_str:
+
+            # Get product IDs from query parameters (list of IDs)
+            product_ids = request.query_params.getlist('product_ids')
+            if not product_ids:
                 return Response({
                     'error': 'No products selected',
                     'details': 'Please select at least one product to delete'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Split the comma-separated string into a list
-            product_ids = product_ids_str.split(',')
-            print("Product IDs received:", product_ids)
-            
             # Convert string IDs to UUID objects
             try:
-                product_ids = [UUID(str(id)) for id in product_ids]
-                print("Converted UUIDs:", product_ids)
+                conv_product_ids = [UUID(str(id)) for id in product_ids]
+                print("Converted UUIDs:", conv_product_ids)
             except ValueError as e:
-                print("UUID conversion error:", str(e))
                 return Response({
                     'error': 'Invalid product ID',
                     'details': str(e)
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Get all products
-            products = Product.objects.filter(id__in=product_ids)
+            # Get all matching products
+            products = Product.objects.filter(id__in=conv_product_ids)
             print("Found products:", products.count())
 
-            # Delete the products one by one to handle potential constraints
             deleted_count = 0
             failed_deletions = []
-            
+
             for product in products:
                 try:
-                    # Delete associated variations first
+                    # Delete associated variations and images
                     ProductVariation.objects.filter(product=product).delete()
-                    # Delete associated images
                     ProductImage.objects.filter(product=product).delete()
-                    # Delete the product
                     product.delete()
                     deleted_count += 1
                 except Exception as e:
                     print(f"Failed to delete product {product.id}:", str(e))
                     failed_deletions.append(str(product.id))
 
-            # Prepare response
             response_data = {
                 'message': f'Successfully deleted {deleted_count} products',
                 'deleted_count': deleted_count
