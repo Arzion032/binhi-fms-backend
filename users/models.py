@@ -2,6 +2,16 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.db import models
 import uuid
 
+class Association(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, username, contact_no, role, password=None):
         if not email:
@@ -58,6 +68,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     username = models.TextField(unique=True)
     contact_no = models.CharField(max_length=15)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    association = models.ForeignKey(Association, on_delete=models.SET_NULL, null=True, blank=True, related_name='members')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

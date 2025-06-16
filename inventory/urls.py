@@ -21,4 +21,7 @@ urlpatterns = [
     path('return_item/<uuid:rental_id>/', 
          views.return_item, 
          name='return_inventory_item'),
+    path('inventory/rentals/list/', 
+         views.list_rentals, 
+         name='list_rentals'),
 ]

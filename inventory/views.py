@@ -96,4 +96,12 @@ def return_item(request, rental_id):
         rental.save()
 
         return Response({"detail": "Item successfully returned."}, status=status.HTTP_200_OK)
+    
+    
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def list_rentals(request):
+    rentals = InventoryRental.objects.all().order_by('-rental_date')
+    serializer = InventoryRentalsSerializer(rentals, many=True)
+    return Response(serializer.data)
 
