@@ -27,6 +27,7 @@ class Order(models.Model):
     payment_method = models.CharField(max_length=50)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    cancellation_reason = models.CharField(max_length=255, null=True, blank=True)
 
     def generate_random_string(self, length=8):
         """Generate a random string of uppercase letters."""

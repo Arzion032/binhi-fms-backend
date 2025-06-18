@@ -115,7 +115,7 @@ class ConfirmCheckoutView(APIView):
                 seller=vendor,
                 payment_method=payment_method,
                 total_amount=order_total,
-                status='pending'
+                status='completed' if payment_method.lower() == 'gcash' else 'pending'
             )
 
             # Prepare response
@@ -139,10 +139,14 @@ class ConfirmCheckoutView(APIView):
         
 class OrderHistoryView(APIView):
     def get(self, request):
+        status_param = request.query_params.get('status', None)
         if not request.user.is_authenticated or request.user.is_superuser:
             orders = Order.objects.all().order_by('-created_at')
         else:
             orders = Order.objects.filter(buyer=request.user).order_by('-created_at')
+
+        if status_param:
+            orders = orders.filter(status=status_param.lower())
 
         serializer = OrderSerializer(orders, many=True)
         order_history = []
@@ -157,6 +161,8 @@ class OrderHistoryView(APIView):
                 "variation": first_item.get("variation", ""),
                 "image": product.get("image", ""),
             }
+            # Use buyer_full_name if available, fallback to buyer.username
+            buyer_name = order.get('buyer_full_name') or (order.get('buyer', {}) or {}).get('username', '-')
             order_data = {
                 'id': order['id'],
                 'orderId': order['order_identifier'],
@@ -170,11 +176,12 @@ class OrderHistoryView(APIView):
                 'sellerName': '',
                 'sellerProfile': '',
                 'deliveryAddress': {
-                    'name': order['shipping_address'],
+                    'name': buyer_name,
                     'phone': '',
                     'address': order['shipping_address'],
                 },
                 'payment_status': order.get('payment_status', 'Pending'),
+                'cancellation_reason': order.get('cancellation_reason', '-')
             }
             order_history.append(order_data)
 
@@ -204,7 +211,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         if status:
             queryset = queryset.filter(status=status.lower())
             
-        return queryset.select_related('buyer').prefetch_related(
+        return queryset.select_related('buyer', 'buyer__profile').prefetch_related(
             'items__variation__product',
             'transaction'
         )
@@ -389,6 +396,7 @@ class OrderStatusPatchView(APIView):
 
         new_status = request.data.get('status')
         payment_status = request.data.get('payment_status')
+        cancellation_reason = request.data.get('cancellation_reason')
 
         updated = False
 
@@ -396,6 +404,11 @@ class OrderStatusPatchView(APIView):
             if order.status != new_status:
                 order.status = new_status
                 updated = True
+
+        # Save cancellation_reason if provided
+        if cancellation_reason is not None:
+            order.cancellation_reason = cancellation_reason
+            updated = True
 
         # PATCH the payment_status in related transaction if it exists
         if payment_status and hasattr(order, 'transaction') and order.transaction:

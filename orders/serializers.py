@@ -10,7 +10,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'variation', 'quantity', 'unit_price', 'subtotal', 'created_at']
+        fields = [
+            'id', 'product', 'variation', 'quantity', 'unit_price', 'subtotal', 'created_at'
+    ]
 
     def get_subtotal(self, obj):
         return obj.unit_price * obj.quantity
@@ -25,12 +27,16 @@ class OrderSerializer(serializers.ModelSerializer):
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
     buyer = UserSerializer(read_only=True)
     payment_status = serializers.SerializerMethodField()  # <-- ADD THIS
+    buyer_email = serializers.EmailField(source='buyer.email', read_only=True)
+    buyer_id = serializers.CharField(source='buyer.id', read_only=True)
+    buyer_full_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_identifier', 'buyer', 'status', 'total_price', 'shipping_address', 
-            'payment_method', 'created_at', 'updated_at', 'items', 'status_history', 'payment_status'
+            'id', 'order_identifier', 'buyer', 'buyer_email', 'buyer_id', 'buyer_full_name',
+            'status', 'total_price', 'shipping_address', 
+            'payment_method', 'created_at', 'updated_at', 'items', 'status_history', 'payment_status', 'cancellation_reason'
         ]
 
     def get_payment_status(self, obj):
@@ -39,6 +45,11 @@ class OrderSerializer(serializers.ModelSerializer):
             return obj.transaction.status.capitalize()
         return "Pending"
 
+    def get_buyer_full_name(self, obj):
+        profile = getattr(obj.buyer, 'profile', None)
+        if profile and getattr(profile, 'full_name', None):
+            return profile.full_name
+        return obj.buyer.username
 
 class MarketTransactionSerializer(serializers.ModelSerializer):
     buyer = UserSerializer(read_only=True)

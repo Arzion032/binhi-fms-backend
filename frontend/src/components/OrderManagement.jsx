@@ -13,6 +13,7 @@ const BADGE_STYLES = {
   cancelled: { color: "#EF4444", background: "#FEE2E2", border: "#EF4444" },
   paid: { color: "#22C55E", background: "#DCFAE6", border: "#22C55E" },
   refunded: { color: "#EF4444", background: "#FEE2E2", border: "#EF4444" },
+  returned: { color: "#EF4444", background: "#FEE2E2", border: "#EF4444" },
   gcash: {
     color: "#fff",
     background: "#40a3fe",
@@ -45,6 +46,7 @@ export default function OrderManagement() {
     { name: "Delivered", value: "delivered", count: 0, border: "#0EA5E9" },
     { name: "Cancelled", value: "cancelled", count: 0, border: "#EF4444" }
   ]);
+  const [selectedStatus, setSelectedStatus] = useState(null);
 
   const ordersPerPage = 7;
 
@@ -78,34 +80,45 @@ export default function OrderManagement() {
         params: {
           page: orderPage,
           per_page: ordersPerPage,
-          search: debouncedSearchQuery
+          search: debouncedSearchQuery,
+          status: selectedStatus,
         }
       });
 
-      const mappedOrders = response.data.map(order => ({
-        ...order,
-        date: order.orderDate ? order.orderDate.split("T")[0] : "-",
-        time: order.orderDate
-          ? (order.orderDate.split("T")[1] || "").split("+")[0].slice(0, 5)
-          : "",
-        customer: {
-          name: order.deliveryAddress?.name || "-",
-          email: order.deliveryAddress?.address || "-",
-          address: order.deliveryAddress?.address || "-",
-          avatar: "/avatar-user.png",
-          contact: order.deliveryAddress?.phone || "-",
-        },
-        product: {
-          name: order.items?.[0]?.name || "-",
-          image: order.items?.[0]?.image?.image || "/sampleproduct.png",
-          variation: order.items?.[0]?.variation || "-",
-        },
-        transaction: order.payment_method || "Pending",
-        payment_status: order.payment_status || "Pending", // Show as is!
-        buyer: {
-          username: userMap[order.buyer_id] || "-"
-        }
-      }));
+      const mappedOrders = response.data.map(order => {
+        console.log('Order object:', order); // Debug log
+        return {
+          ...order,
+          date: order.orderDate ? order.orderDate.split("T")[0] : "-",
+          time: order.orderDate
+            ? (order.orderDate.split("T")[1] || "").split("+")[0].slice(0, 5)
+            : "",
+          customer: {
+            name: order.buyer_full_name || userMap[order.buyer_id] || order.deliveryAddress?.name || "-",
+            email: order.deliveryAddress?.address || "-",
+            address: order.deliveryAddress?.address || "-",
+            avatar: "/avatar-user.png",
+            contact: order.deliveryAddress?.phone || "-",
+          },
+          product: {
+            name: order.product?.name || "-",
+            image: order.product?.image || "/sampleproduct.png",
+            variation: order.product?.variation || "-",
+          },
+          transaction: order.payment_method || "Pending",
+          payment_status:
+            order.status?.toLowerCase() === "cancelled"
+              ? "Returned"
+              : (order.payment_method && order.payment_method.toLowerCase() === "gcash" && order.status?.toLowerCase() === "cancelled")
+                ? "Returned"
+                : (order.payment_method && order.payment_method.toLowerCase() === "gcash")
+                  ? "Paid"
+                  : (order.payment_status || "Pending"),
+          buyer: {
+            username: userMap[order.buyer_id] || "-"
+          }
+        };
+      });
 
       setOrderRows(mappedOrders);
       setTotalOrders(mappedOrders.length);
@@ -122,11 +135,11 @@ export default function OrderManagement() {
       setTotalOrders(0);
     }
     setLoading(false);
-  }, [orderPage, ordersPerPage, debouncedSearchQuery, userMap]);
+  }, [orderPage, ordersPerPage, debouncedSearchQuery, userMap, selectedStatus]);
 
   useEffect(() => {
     fetchOrders();
-  }, [orderPage, debouncedSearchQuery]);
+  }, [orderPage, debouncedSearchQuery, selectedStatus]);
 
   const orderTotalPages = Math.ceil(totalOrders / ordersPerPage);
 
@@ -144,6 +157,13 @@ export default function OrderManagement() {
     setOrderManagementModalOpen(false);
     setSelectedOrder(null);
   };
+
+  function formatReason(reason) {
+    if (!reason || reason === '-') return '-';
+    return reason
+      .replace(/_/g, ' ')
+      .replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  }
 
   return (
     <div className="px-6 pb-6">
@@ -214,6 +234,7 @@ export default function OrderManagement() {
           {statusCategories.map((cat) => (
             <div
               key={cat.value}
+              onClick={() => setSelectedStatus(selectedStatus === cat.value ? null : cat.value)}
               style={{
                 position: "relative",
                 border: `1.8px solid ${cat.border}`,
@@ -228,6 +249,7 @@ export default function OrderManagement() {
                 flex: "1",
                 overflow: "hidden",
                 boxShadow: "0 1px 5px 0 rgba(0,0,0,0.07)",
+                cursor: 'pointer',
               }}
             >
               {loading && (
@@ -317,13 +339,13 @@ export default function OrderManagement() {
                   />
                 </th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Order ID</th>
-                <th style={{ padding: "0.75rem", textAlign: "left" }}>Buyer</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>address</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Product</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Date Ordered</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Order Status</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Payment Method</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Payment Status</th>
+                <th style={{ padding: "0.75rem", textAlign: "left" }}>Cancellation Reason</th>
                 <th style={{ padding: "0.75rem", textAlign: "left" }}>Actions</th>
               </tr>
             </thead>
@@ -367,9 +389,6 @@ export default function OrderManagement() {
                       <span className="font-medium">{o.orderId || o.id}</span>
                     </td>
                     <td style={{ padding: "0.75rem" }}>
-                      <span className="font-medium">{o.buyer?.username || '-'}</span>
-                    </td>
-                    <td style={{ padding: "0.75rem" }}>
                       <div style={{
                         display: "flex",
                         alignItems: "center",
@@ -387,10 +406,10 @@ export default function OrderManagement() {
                         />
                         <div>
                           <div style={{ fontWeight: 600, color: "#111827" }}>
-                            {o.customer.name}
+                            {o.customer.address}
                           </div>
                           <div style={{ fontSize: "0.87rem", color: "#6B7280" }}>
-                            {o.customer.email}
+                            Name: {o.customer.name}
                           </div>
                         </div>
                       </div>
@@ -464,6 +483,11 @@ export default function OrderManagement() {
                       >
                         {o.payment_status || "Pending"}
                       </span>
+                    </td>
+                    <td style={{ padding: "0.75rem" }}>
+                      {o.status?.toLowerCase() === "cancelled"
+                        ? formatReason(o.cancellation_reason)
+                        : "-"}
                     </td>
                     <td style={{ padding: "0.75rem" }}>
                       <div

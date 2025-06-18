@@ -1,20 +1,217 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+// Cancellation Modal (inline)
+const CANCELLATION_REASONS = [
+  "Out of Stock",
+  "Incorrect Pricing",
+  "Logistical Problems",
+  "Customer Request",
+  "Payment Issues",
+  "Others"
+];
 
-const ORDER_STATUSES = ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"];
-const PAYMENT_STATUS_LIST = ["Pending", "Paid", "Refunded"];
-const PAYMENT_METHODS = ["GCash", "Cash on Delivery"];
+// Add this helper if you use a badge for payment status in the modal
+const PAYMENT_BADGE_STYLES = {
+  Pending: { color: "#F59E42", background: "#FFF6E9", border: "#F59E42" },
+  Paid: { color: "#22C55E", background: "#DCFAE6", border: "#22C55E" },
+  Refunded: { color: "#EF4444", background: "#FEE2E2", border: "#EF4444" },
+  Returned: { color: "#EF4444", background: "#FEE2E2", border: "#EF4444" },
+};
 
-export default function OrderManagementModal({
+function OrderManagementCancelModal({
   isOpen,
   onClose,
   order,
   onStatusUpdate,
-  onCloseNoRefresh,
+  handleFullClose
 }) {
-  const [orderStatus, setOrderStatus] = useState(order?.status || "Processing");
+  const [selectedReason, setSelectedReason] = useState("");
+  const [customReason, setCustomReason] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  if (!isOpen || !order) return null;
+
+  const handleSubmit = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      await axios.patch(
+        `http://127.0.0.1:8000/orders/orders/${order.id}/status/`,
+        {
+          status: "cancelled",
+          cancellation_reason: selectedReason === "Others" ? customReason : selectedReason
+        }
+      );
+
+      setShowConfirmModal(false);
+
+      if (onStatusUpdate) {
+        onStatusUpdate(order.id, "Cancelled", order.transaction);
+      }
+
+      handleFullClose();
+    } catch (err) {
+      setError("Failed to cancel order. Please try again.");
+      console.error("Error cancelling order:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed z-50 inset-0 flex items-center justify-center bg-black bg-opacity-30">
+      <div
+        className="relative bg-white w-full max-w-md mx-auto rounded-[2.2rem] shadow-xl p-9 pt-8 border"
+        style={{ minWidth: 370, maxWidth: 490, borderColor: "#b5b5b5" }}
+      >
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+        {isLoading && (
+          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-[2.2rem]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={handleFullClose}
+          className="absolute right-7 top-7 text-gray-500 hover:text-gray-900 rounded-full focus:outline-none text-2xl"
+          aria-label="Close"
+          disabled={isLoading}
+        >
+          <svg width={22} height={22} fill="none" viewBox="0 0 24 24">
+            <path stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" />
+          </svg>
+        </button>
+        <h2 className="text-2xl font-bold leading-tight mb-0">Cancel Order</h2>
+        <p className="text-base text-gray-600 mb-4">
+          Please select a reason for cancelling this order.
+        </p>
+        <hr className="mb-6 mt-1" />
+        <div className="space-y-4 mb-6">
+          {CANCELLATION_REASONS.map((reason) => (
+            <label key={reason} className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="radio"
+                name="cancellation_reason"
+                value={reason}
+                checked={selectedReason === reason}
+                onChange={(e) => setSelectedReason(e.target.value)}
+                className="w-5 h-5 text-green-600 focus:ring-green-500"
+                disabled={isLoading}
+              />
+              <span className="text-gray-700">{reason}</span>
+            </label>
+          ))}
+        </div>
+        {selectedReason === "Others" && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Please specify the reason
+            </label>
+            <textarea
+              value={customReason}
+              onChange={(e) => setCustomReason(e.target.value)}
+              className="w-full rounded-lg border px-4 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-green-200"
+              rows={3}
+              placeholder="Enter cancellation reason..."
+              disabled={isLoading}
+            />
+          </div>
+        )}
+        <div className="flex justify-between gap-4 mt-10">
+          <button
+            type="button"
+            onClick={handleFullClose}
+            className="flex-1 bg-gray-200 text-gray-700 font-semibold rounded-full py-4 text-lg transition hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            style={{ fontSize: "1.15rem" }}
+            disabled={isLoading}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowConfirmModal(true)}
+            className="flex-1 bg-[#EF4444] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#DC2626] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+            style={{ fontSize: "1.15rem" }}
+            disabled={isLoading || !selectedReason || (selectedReason === "Others" && !customReason)}
+          >
+            Cancel Order
+          </button>
+        </div>
+      </div>
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+          <div className="bg-white rounded-3xl shadow-xl relative p-10 w-full max-w-xl text-center border" style={{ borderColor: "#b5b5b5" }}>
+            <button
+              type="button"
+              onClick={handleFullClose}
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl"
+              aria-label="Close"
+              style={{ background: "none", border: "none" }}
+              disabled={isLoading}
+            >
+              &times;
+            </button>
+            <div className="flex justify-center mb-6">
+              <div className="bg-[#FF4B4B] rounded-full flex items-center justify-center mb-2" style={{ width: 110, height: 110 }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" fill="none" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="12" fill="#FF4B4B" />
+                  <path d="M12 7v5m0 4h.01" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+                </svg>
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold mb-2 mt-1" style={{ color: "#222" }}>Confirm Cancellation?</h2>
+            <p className="text-gray-700 mb-8">
+              Are you sure you want to cancel this order?<br />
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-center gap-5 mt-2">
+              <button
+                type="button"
+                onClick={handleFullClose}
+                className="bg-gray-200 text-gray-700 font-semibold rounded-full px-12 py-4 text-base hover:bg-gray-300 transition"
+                style={{ minWidth: 140, fontSize: "1.12rem" }}
+                disabled={isLoading}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                className="bg-[#EF4444] text-white font-semibold rounded-full px-12 py-4 text-base hover:bg-[#DC2626] transition"
+                style={{ minWidth: 140, fontSize: "1.12rem" }}
+                disabled={isLoading}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Main Modal
+const API_BASE_URL = "http://127.0.0.1:8000";
+const ORDER_STATUSES = ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"];
+const PAYMENT_STATUS_LIST = ["Pending", "Paid", "Refunded"];
+
+export default function OrderManagementModal({
+  isOpen,
+  onClose,
+  onCloseNoRefresh,
+  order,
+  onStatusUpdate,
+}) {
+  const [editingStatus, setEditingStatus] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(order?.payment_status || "Pending");
   const paymentMethod = order?.payment_method || "Cash on Delivery";
   const [isLoading, setIsLoading] = useState(false);
@@ -24,17 +221,40 @@ export default function OrderManagementModal({
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successType, setSuccessType] = useState(""); // "confirm" | "disregard"
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
+  const isCancelled = order.status?.toLowerCase() === 'cancelled';
+
+  // Universal modal close handler (for all X and Back buttons)
+  const handleFullClose = () => {
+    setShowDisregardModal(false);
+    setShowConfirmModal(false);
+    setShowSuccessModal(false);
+    setShowCancelModal(false);
+    setError(null);
+    setIsLoading(false);
+    if (typeof onCloseNoRefresh === "function") onCloseNoRefresh();
+    else if (typeof onClose === "function") onClose();
+  };
+
+  // Sync state with incoming order
   useEffect(() => {
+    setEditingStatus(null);
+    setPaymentStatus(order?.payment_status || "Pending");
+  }, [order]);
+
+  // Payment Status Logic
+  useEffect(() => {
+    if (paymentMethod === "Cash on Delivery" && order.status === "Delivered") {
+      setPaymentStatus("Paid");
+    }
+    if (paymentMethod === "Cash on Delivery" && order.status !== "Delivered") {
+      if (paymentStatus === "Paid") setPaymentStatus("Pending");
+    }
     if (paymentMethod === "GCash") {
       setPaymentStatus("Paid");
     }
-  }, [paymentMethod]);
-
-  useEffect(() => {
-    setOrderStatus(order?.status || "Processing");
-    setPaymentStatus(order?.payment_status || "Pending");
-  }, [order]);
+  }, [paymentMethod, order.status]);
 
   if (!isOpen || !order) return null;
 
@@ -43,11 +263,10 @@ export default function OrderManagementModal({
       setIsLoading(true);
       setError(null);
 
-      // Update order status AND payment_status
       await axios.patch(
         `${API_BASE_URL}/orders/orders/${order.id}/status/`,
         {
-          status: orderStatus.toLowerCase(),
+          status: editingStatus !== null ? editingStatus : order.status,
           payment_status: paymentStatus,
         }
       );
@@ -57,11 +276,11 @@ export default function OrderManagementModal({
       setShowSuccessModal(true);
 
       if (onStatusUpdate) {
-        onStatusUpdate(order.id, orderStatus, paymentStatus);
+        onStatusUpdate(order.id, editingStatus !== null ? editingStatus : order.status, paymentStatus);
       }
     } catch (err) {
-      setError('Failed to update order. Please try again.');
-      console.error('Error updating order:', err);
+      setError("Failed to update order. Please try again.");
+      console.error("Error updating order:", err);
     } finally {
       setIsLoading(false);
     }
@@ -71,34 +290,40 @@ export default function OrderManagementModal({
     setShowDisregardModal(false);
     setSuccessType("disregard");
     setShowSuccessModal(true);
-    onClose();
+    if (typeof onCloseNoRefresh === "function") onCloseNoRefresh();
+    else if (typeof onClose === "function") onClose();
   }
+
+  function formatReason(reason) {
+    if (!reason || reason === '-') return '-';
+    return reason
+      .replace(/_/g, ' ')
+      .replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  }
+
+  // In the modal, when displaying payment status:
+  const displayPaymentStatus = order.status?.toLowerCase() === 'cancelled' ? 'Returned' : paymentStatus;
 
   return (
     <div className="fixed z-50 inset-0 flex items-center justify-center bg-black bg-opacity-30">
-      {/* Main Modal */}
       <div
         className="relative bg-white w-full max-w-md mx-auto rounded-[2.2rem] shadow-xl p-9 pt-8 border"
         style={{ minWidth: 370, maxWidth: 490, borderColor: "#b5b5b5" }}
       >
-        {/* Error Message */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
             {error}
           </div>
         )}
-
-        {/* Loading State */}
         {isLoading && (
           <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-[2.2rem]">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
           </div>
         )}
-
         {/* Close button */}
         <button
           type="button"
-          onClick={onCloseNoRefresh}
+          onClick={handleFullClose}
           className="absolute right-7 top-7 text-gray-500 hover:text-gray-900 rounded-full focus:outline-none text-2xl"
           aria-label="Close"
           disabled={isLoading}
@@ -107,13 +332,11 @@ export default function OrderManagementModal({
             <path stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" />
           </svg>
         </button>
-
         <h2 className="text-2xl font-bold leading-tight mb-0">Order Details</h2>
         <p className="text-base text-gray-600 mb-4">
           Shown below is the order details.
         </p>
         <hr className="mb-6 mt-1" />
-
         <div className="flex items-center gap-4 mb-7">
           <img
             src={order.product.image || order.product.avatar || "/sampleproduct.png"}
@@ -128,7 +351,6 @@ export default function OrderManagementModal({
             </div>
           </div>
         </div>
-
         <div className="grid grid-cols-2 gap-y-2 gap-x-4 mb-3 text-sm">
           <div>
             <span className="font-semibold text-black">Name</span>
@@ -144,7 +366,11 @@ export default function OrderManagementModal({
           </div>
           <div>
             <span className="font-semibold text-black">Contact Number</span>
-            <div>{order.customer.contact}</div>
+            <div>{order.buyer?.contact_no || '-'}</div>
+          </div>
+          <div>
+            <span className="font-semibold text-black">Cancellation Reason</span>
+            <div>{order.status?.toLowerCase() === 'cancelled' ? formatReason(order.cancellation_reason) : '-'}</div>
           </div>
         </div>
         <div className="text-gray-900 font-semibold mt-1 mb-2 text-sm">
@@ -153,58 +379,21 @@ export default function OrderManagementModal({
         <div className="text-gray-400 mb-2 text-sm">
           {order.date} {order.time}
         </div>
-
-        {order.transaction && (
-          <div className="grid grid-cols-2 gap-y-2 gap-x-4 mb-3 text-sm">
-            <div>
-              <span className="font-semibold text-black">Total Amount</span>
-              <div className="text-[#16A34A] font-semibold">
-                ₱{(() => {
-                  const amount = parseFloat(order.total_price);
-                  return isNaN(amount) ? '0.00' : amount.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  });
-                })()}
-              </div>
-            </div>
-            <div>
-              <span className="font-semibold text-black">Transaction ID</span>
-              <div>{order.transaction.id}</div>
-            </div>
-          </div>
-        )}
-
-        {/* Dropdowns */}
         <div className="mb-2">
           <label className="font-semibold text-black text-sm mb-1 block">
             Order Status
           </label>
           <select
-            className="w-full rounded-full border px-4 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-green-200"
-            value={orderStatus}
-            onChange={e => setOrderStatus(e.target.value)}
-            disabled={isLoading}
+            className={`w-full rounded-full border px-4 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-green-200 ${isCancelled ? "opacity-50 cursor-not-allowed" : ""}`}
+            value={editingStatus !== null ? editingStatus : (order?.status || "Processing")}
+            onChange={e => setEditingStatus(e.target.value)}
+            disabled={isLoading || isCancelled}
           >
             {ORDER_STATUSES.map(os => (
               <option key={os} value={os}>{os}</option>
             ))}
           </select>
         </div>
-
-        <div className="mb-2">
-          <label className="font-semibold text-black text-sm mb-1 block">
-            Payment Method
-          </label>
-          <input
-            type="text"
-            className="w-full rounded-full border px-4 py-2 text-base bg-gray-100 cursor-not-allowed"
-            value={paymentMethod}
-            readOnly
-            disabled
-          />
-        </div>
-
         <div className="mb-5">
           <label className="font-semibold text-black text-sm mb-1 block">
             Payment Status
@@ -213,42 +402,72 @@ export default function OrderManagementModal({
             className="w-full rounded-full border px-4 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-green-200"
             value={paymentStatus}
             onChange={e => setPaymentStatus(e.target.value)}
-            disabled={isLoading || paymentMethod === "GCash"}
+            disabled={
+              isLoading ||
+              paymentMethod === "GCash" ||
+              (paymentMethod === "Cash on Delivery" && order.status !== "Delivered") ||
+              isCancelled
+            }
           >
             {PAYMENT_STATUS_LIST.map(status => (
-              <option key={status} value={status}>{status}</option>
+              <option
+                key={status}
+                value={status}
+                disabled={
+                  (paymentMethod === "Cash on Delivery" &&
+                  status === "Paid" &&
+                  order.status !== "Delivered") ||
+                  isCancelled
+                }
+              >
+                {status}
+              </option>
             ))}
           </select>
         </div>
-
-        <div className="flex justify-between gap-4 mt-10">
+        {(order.status === "Pending" || order.status?.toLowerCase() === "pending") && !isCancelled && (
           <button
             type="button"
-            onClick={() => setShowDisregardModal(true)}
-            className="flex-1 bg-[#EF4444] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#DC2626] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+            onClick={() => setShowCancelModal(true)}
+            className="w-full bg-[#EF4444] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#DC2626] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
             style={{ fontSize: "1.15rem" }}
             disabled={isLoading}
           >
-            Disregard
+            Cancel Order
           </button>
-          <button
-            type="button"
-            onClick={() => setShowConfirmModal(true)}
-            className="flex-1 bg-[#16A34A] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#15803D] focus:outline-none focus:ring-2 focus:ring-[#15803D]"
-            style={{ fontSize: "1.15rem" }}
-            disabled={isLoading}
-          >
-            Confirm
-          </button>
-        </div>
+        )}
+        {!isCancelled && (
+          <div className="flex flex-col gap-4 mt-10">
+            <div className="flex justify-between gap-4">
+              <button
+                type="button"
+                onClick={() => setShowDisregardModal(true)}
+                className="flex-1 bg-[#EF4444] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#DC2626] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                style={{ fontSize: "1.15rem" }}
+                disabled={isLoading || order.status === "Cancelled"}
+              >
+                Disregard
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(true)}
+                className="flex-1 bg-[#16A34A] text-white font-semibold rounded-full py-4 text-lg transition hover:bg-[#15803D] focus:outline-none focus:ring-2 focus:ring-[#15803D]"
+                style={{ fontSize: "1.15rem" }}
+                disabled={isLoading || order.status === "Cancelled"}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* DISREGARD Confirmation Modal */}
+      {/* Disregard Modal */}
       {showDisregardModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
           <div className="bg-white rounded-3xl shadow-xl relative p-10 w-full max-w-xl text-center border" style={{ borderColor: "#b5b5b5" }}>
             <button
-              onClick={() => setShowDisregardModal(false)}
+              type="button"
+              onClick={handleFullClose}
               className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl"
               aria-label="Close"
               style={{ background: "none", border: "none" }}
@@ -271,7 +490,8 @@ export default function OrderManagementModal({
             </p>
             <div className="flex justify-center gap-5 mt-2">
               <button
-                onClick={() => setShowDisregardModal(false)}
+                type="button"
+                onClick={handleFullClose}
                 className="bg-[#FF3B3F] text-white font-semibold rounded-full px-12 py-4 text-base hover:bg-[#ff5c5c] transition"
                 style={{ minWidth: 140, fontSize: "1.12rem" }}
                 disabled={isLoading}
@@ -279,6 +499,7 @@ export default function OrderManagementModal({
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleDisregardSubmit}
                 className="border-2 border-[#FF3B3F] font-semibold rounded-full px-12 py-4 text-base bg-white transition"
                 style={{
@@ -304,13 +525,13 @@ export default function OrderManagementModal({
           </div>
         </div>
       )}
-
-      {/* CONFIRM Confirmation Modal */}
+      {/* Confirm Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
           <div className="bg-white rounded-3xl shadow-xl relative p-10 w-full max-w-xl text-center border" style={{ borderColor: "#b5b5b5" }}>
             <button
-              onClick={() => setShowConfirmModal(false)}
+              type="button"
+              onClick={handleFullClose}
               className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl"
               aria-label="Close"
               style={{ background: "none", border: "none" }}
@@ -332,7 +553,8 @@ export default function OrderManagementModal({
             </p>
             <div className="flex justify-center gap-5 mt-2">
               <button
-                onClick={() => setShowConfirmModal(false)}
+                type="button"
+                onClick={handleFullClose}
                 className="border-2 border-[#43B864] font-semibold rounded-full px-12 py-4 text-base bg-white text-[#43B864] transition"
                 style={{ minWidth: 140, fontSize: "1.12rem" }}
                 disabled={isLoading}
@@ -340,6 +562,7 @@ export default function OrderManagementModal({
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleConfirmSubmit}
                 className="bg-[#43B864] text-white font-semibold rounded-full px-12 py-4 text-base hover:bg-[#369C52] transition"
                 style={{ minWidth: 140, fontSize: "1.12rem" }}
@@ -351,16 +574,13 @@ export default function OrderManagementModal({
           </div>
         </div>
       )}
-
-      {/* SUCCESS Modal */}
+      {/* Success Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
           <div className="bg-white rounded-3xl shadow-xl relative p-10 w-full max-w-xl text-center border" style={{ borderColor: "#b5b5b5" }}>
             <button
-              onClick={() => {
-                setShowSuccessModal(false);
-                onCloseNoRefresh && onCloseNoRefresh();
-              }}
+              type="button"
+              onClick={handleFullClose}
               className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl"
               aria-label="Close"
               style={{ background: "none", border: "none" }}
@@ -386,7 +606,8 @@ export default function OrderManagementModal({
             </p>
             <div className="flex justify-center gap-5 mt-2">
               <button
-                onClick={() => setShowSuccessModal(false)}
+                type="button"
+                onClick={handleFullClose}
                 className="border-2 border-[#43B864] font-semibold rounded-full px-12 py-4 text-base bg-white text-[#43B864] transition"
                 style={{ minWidth: 140, fontSize: "1.12rem" }}
                 disabled={isLoading}
@@ -394,10 +615,8 @@ export default function OrderManagementModal({
                 Back
               </button>
               <button
-                onClick={() => {
-                  setShowSuccessModal(false);
-                  onClose && onClose();
-                }}
+                type="button"
+                onClick={handleFullClose}
                 className="bg-[#43B864] text-white font-semibold rounded-full px-12 py-4 text-base hover:bg-[#369C52] transition"
                 style={{ minWidth: 140, fontSize: "1.12rem" }}
                 disabled={isLoading}
@@ -408,6 +627,14 @@ export default function OrderManagementModal({
           </div>
         </div>
       )}
+      {/* Cancel Modal */}
+      <OrderManagementCancelModal
+        isOpen={showCancelModal}
+        onClose={handleFullClose}
+        handleFullClose={handleFullClose}
+        order={order}
+        onStatusUpdate={onStatusUpdate}
+      />
     </div>
   );
 }
