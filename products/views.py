@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, viewsets
-from .models import Product, Category, ProductVariation, ProductImage
+from .models import Product, Category, ProductVariation, ProductImage, VariationImage
 from .serializers import ProductSerializer, CategorySerializer, ProductVariationSerializer, ProductImageSerializer
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -10,8 +10,9 @@ from django.core.files.uploadedfile import InMemoryUploadedFile, UploadedFile
 from rest_framework.decorators import api_view, permission_classes
 from django.db.models import Q
 from association.models import Farmer
-import json
+from django.core.files.base import ContentFile
 from uuid import UUID
+import json, uuid, base64,re
 
 # GET all products
 class GetProducts(APIView):
@@ -93,6 +94,7 @@ class AddProduct(APIView):
             print("\n=== Product Creation Request ===")
             print("Request data:", request.data)
             print("Request files:", request.FILES)
+    
             
             # Validate required fields
             required_fields = ['name', 'description', 'category', 'vendor_id']
@@ -135,9 +137,9 @@ class AddProduct(APIView):
                 # Get farmer
             try:
                 farmer = Farmer.objects.get(id=request.data['farmer_id'])
-                print("Vendor found:", farmer.full_name)
+                print("Farmer found:", farmer.full_name)
             except (Farmer.DoesNotExist, ValueError) as e:
-                print("Vendor error:", str(e))
+                print("Farmer error:", str(e))
                 return Response({
                     'error': 'Invalid farmer',
                     'details': 'Farmer not found or invalid UUID',
@@ -145,7 +147,7 @@ class AddProduct(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # Validate images
-            if not request.FILES.getlist('images'):
+            if not request.FILES.getlist('prod_images'):
                 return Response({
                     'error': 'Missing images',
                     'details': 'At least one image is required'
@@ -161,7 +163,6 @@ class AddProduct(APIView):
                 'farmer': farmer
             }
 
-
             # Add farmer_id if provided
             if request.data.get('farmer_id'):
                 product_data['farmer_id'] = request.data['farmer_id'].strip()
@@ -169,29 +170,63 @@ class AddProduct(APIView):
             # Create product
             product = Product.objects.create(**product_data)
             print("Product created:", product.name)
+            
+            variations_raw = request.data.get('variations')  # This is the raw string
 
-            # Handle variations
-            variations_data = request.data.get('variations')
-            if variations_data:
+            if variations_raw:
                 try:
-                    variations = json.loads(variations_data)
-                    for variation in variations:
+                    # Step 1: Extract image base64 data from raw string
+                    image_list = []
+                    cleaned_variations = []
+
+                    # Match each variation object manually
+                    variation_pattern = re.finditer(r'\{.*?\}', variations_raw)
+
+                    for match in variation_pattern:
+                        variation_str = match.group()
+
+                        # Extract image base64 list (assuming only 1 image per variation)
+                        image_match = re.search(r'"images"\s*:\s*\[\s*"([^"]+)"\s*\]', variation_str)
+                        image_base64 = image_match.group(1) if image_match else None
+                        image_list.append(image_base64)
+
+                        # Remove the "images" key entirely from the string
+                        cleaned_str = re.sub(r'"images"\s*:\s*\[\s*"[^"]*"\s*\],?', '', variation_str)
+                        cleaned_variations.append(cleaned_str)
+
+                    # Step 2: Parse cleaned variation JSONs
+                    parsed_variations = [json.loads(v) for v in cleaned_variations]
+                    var_image_file = request.FILES.getlist('var_images')
+
+                    # Step 3: Save variations and their images
+                    for idx, variation in enumerate(parsed_variations):
                         variation['product'] = product
-                        ProductVariation.objects.create(**variation)
-                except json.JSONDecodeError:
-                    print("Invalid variations JSON")
-                    return Response({
-                        'error': 'Invalid variations data',
-                        'details': 'Variations data must be valid JSON'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                        created_variation = ProductVariation.objects.create(**variation)
 
-            # Handle images
-            for image_file in request.FILES.getlist('images'):
-                ProductImage.objects.create(product=product, image_file=image_file)
+                        try:
+                            VariationImage.objects.create(
+                                variation=created_variation,
+                                image_file=var_image_file[idx],  # Index matches image
+                                is_main=True
+                            )
+                        except Exception as e:
+                            print(f"Image save error: {e}")
 
-            # Serialize and return response
-            serializer = ProductSerializer(product)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+                except Exception as e:
+                    print(f"Variation processing error: {e}")
+                    return Response({'error': 'Invalid variation data', 'detail': str(e)}, status=400)
+
+                # Handle images
+                for index, image_file in enumerate(request.FILES.getlist('prod_images')):
+                    ProductImage.objects.create(
+                        product=product,
+                        image_file=image_file,
+                        is_main=(index == 0)
+        )
+
+                # Serialize and return response
+                serializer = ProductSerializer(product)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             print("Unexpected error:", str(e))
@@ -199,179 +234,154 @@ class AddProduct(APIView):
                 'error': 'Server error',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        
 
 # UPDATE an existing product
 class UpdateProduct(APIView):
     permission_classes = [AllowAny]
-    
-    def put(self, request, pk):
+
+    def patch(self, request, pk):
+        print(request.data)
         product = get_object_or_404(Product, pk=pk)
-        
-        # Prepare data for serializer - request.data will be a QueryDict for multipart/form-data
-        # We need to handle variations and images specially as they are stringified JSON arrays
 
         variations_data = []
+        # images_data = []  # ❌ Commented: Not handling images
+
+        # --- Handle Variations ---
         variations_raw = request.data.get('variations')
         if variations_raw:
             if isinstance(variations_raw, str):
                 try:
-                    parsed_variations = json.loads(variations_raw)
-                    if isinstance(parsed_variations, list):
-                        for item in parsed_variations:
-                            if isinstance(item, dict):
-                                variations_data.append(item)
-                    elif isinstance(parsed_variations, dict):
-                        variations_data.append(parsed_variations)
+                    parsed = json.loads(variations_raw)
+                    if isinstance(parsed, list):
+                        variations_data.extend([v for v in parsed if isinstance(v, dict)])
+                    elif isinstance(parsed, dict):
+                        variations_data.append(parsed)
                 except json.JSONDecodeError:
                     pass
             elif isinstance(variations_raw, list):
-                for item in variations_raw:
-                    if isinstance(item, str):
+                for v in variations_raw:
+                    if isinstance(v, str):
                         try:
-                            parsed_item = json.loads(item)
-                            if isinstance(parsed_item, dict):
-                                variations_data.append(parsed_item)
+                            v = json.loads(v)
                         except json.JSONDecodeError:
-                            pass
-                    elif isinstance(item, dict):
-                        variations_data.append(item)
+                            continue
+                    if isinstance(v, dict):
+                        variations_data.append(v)
 
-        images_data = []
-        images_raw = request.data.get('images')
-        if images_raw:
-            if isinstance(images_raw, str):
-                try:
-                    parsed_images = json.loads(images_raw)
-                    if isinstance(parsed_images, list):
-                        for item in parsed_images:
-                            if isinstance(item, dict):
-                                images_data.append(item)
-                    elif isinstance(parsed_images, dict):
-                        images_data.append(parsed_images)
-                except json.JSONDecodeError:
-                    pass
-            elif isinstance(images_raw, list):
-                for item in images_raw:
-                    if isinstance(item, str):
-                        try:
-                            parsed_item = json.loads(item)
-                            if isinstance(parsed_item, dict):
-                                images_data.append(parsed_item)
-                        except json.JSONDecodeError:
-                            pass
-                    elif isinstance(item, dict):
-                        images_data.append(item)
-        
-        # Handle new image files from request.FILES and attach them to the correct variation/image data
+        # --- Handle Images (optional) ---
+        # images_raw = request.data.get('images')
+        # if images_raw:
+        #     if isinstance(images_raw, str):
+        #         try:
+        #             parsed = json.loads(images_raw)
+        #             if isinstance(parsed, list):
+        #                 images_data.extend([img for img in parsed if isinstance(img, dict)])
+        #             elif isinstance(parsed, dict):
+        #                 images_data.append(parsed)
+        #         except json.JSONDecodeError:
+        #             pass
+        #     elif isinstance(images_raw, list):
+        #         for img in images_raw:
+        #             if isinstance(img, str):
+        #                 try:
+        #                     img = json.loads(img)
+        #                 except json.JSONDecodeError:
+        #                     continue
+        #             if isinstance(img, dict):
+        #                 images_data.append(img)
+
+        # --- Attach uploaded image files ---
         for key, file in request.FILES.items():
             if key.startswith('variations_new_image_'):
                 for variation in variations_data:
                     if variation.get('image_file_key') == key:
                         variation['image'] = file
                         break
-            elif key.startswith('images_new_image_'):
-                for image_item in images_data:
-                    if image_item.get('image_file_key') == key:
-                        image_item['image'] = file
-                        break
+            # elif key.startswith('images_new_image_'):
+            #     for image in images_data:
+            #         if image.get('image_file_key') == key:
+            #             image['image'] = file
+            #             break
 
-        # Create a mutable copy of request.data for top-level fields for the serializer
+        # Remove variations/images from request.data
         mutable_data = request.data.copy()
-        # Remove variations and images from mutable_data as they are handled via context
         mutable_data.pop('variations', None)
         mutable_data.pop('images', None)
 
-        print(f"[Debug] Full request.data: {request.data}")
-        print(f"[Debug] Variations data before serializer: {variations_data}")
-        print(f"[Debug] Type of variations_data: {type(variations_data)}")
-        print(f"[Debug] Images data before serializer: {images_data}")
-        print(f"[Debug] Type of images_data: {type(images_data)}")
+        context = {'variations': variations_data}
+        # if images_data:
+        #     context['images'] = images_data
 
-        serializer = ProductSerializer(
-            product,
-            data=mutable_data,
-            context={'variations': variations_data, 'images': images_data},
-            partial=True
-        )
-        
-        print(f"[Debug] Is serializer valid? {serializer.is_valid()}")
-        if serializer.is_valid():
-            print("[Debug] Serializer is valid, saving product.")
-            product = serializer.save()
-
-            # Handle variations: update existing, create new, delete removed
-            current_variation_ids = set()
-            for variation_data_raw in variations_data:
-                variation_data = variation_data_raw.copy()  # Make a copy to modify
-                variation_id = variation_data.pop('id', None)  # Pop id for update/create logic
-                variation_data.pop('image_file_key', None)  # Remove image_file_key (if present from frontend)
-
-                if variation_id:
-                    try:
-                        variation = ProductVariation.objects.get(id=variation_id, product=product)
-                        variation_serializer = ProductVariationSerializer(instance=variation, data=variation_data, partial=True)
-                        if variation_serializer.is_valid(raise_exception=True):
-                            variation_serializer.save()
-                        current_variation_ids.add(variation_id)
-                    except ProductVariation.DoesNotExist:
-                        print(f"Warning: Variation with ID {variation_id} not found for product {product.id}. Creating as new.")
-                        variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': product.id})
-                        if variation_serializer.is_valid(raise_exception=True):
-                            new_variation = variation_serializer.save()
-                            current_variation_ids.add(str(new_variation.id))
-                else:
-                    variation_serializer = ProductVariationSerializer(data={**variation_data, 'product': product.id})
-                    if variation_serializer.is_valid(raise_exception=True):
-                        new_variation = variation_serializer.save()
-                        current_variation_ids.add(str(new_variation.id))
-
-            # Delete variations that were not in the updated data
-            ProductVariation.objects.filter(product=product).exclude(id__in=list(current_variation_ids)).delete()
-
-            # Handle images: update existing, create new, delete removed
-            current_image_ids = set()
-            for image_data_raw in images_data:
-                image_data = image_data_raw.copy()
-                image_id = image_data.pop('id', None)
-                
-                # Check if the 'image' field is a file object (new upload) or a URL string (existing)
-                image_is_file = isinstance(image_data.get('image'), (InMemoryUploadedFile, UploadedFile))
-
-                if image_id:
-                    try:
-                        image_instance = ProductImage.objects.get(id=image_id, product=product)
-                        
-                        serializer_data = image_data.copy()  # Start with all data
-                        
-                        if not image_is_file:  # If it's not a file (it's a URL string), remove the image field from data for partial update
-                            serializer_data.pop('image', None)
-                        
-                        image_serializer = ProductImageSerializer(instance=image_instance, data=serializer_data, partial=True)
-                        if image_serializer.is_valid(raise_exception=True):
-                            image_serializer.save()
-                        current_image_ids.add(image_id)
-                    except ProductImage.DoesNotExist:
-                        print(f"Warning: Image with ID {image_id} not found for product {product.id}. Creating as new.")
-                        if image_is_file:  # Only create as new if there's a file to upload
-                            image_serializer = ProductImageSerializer(data={**image_data, 'product': product.id})
-                            if image_serializer.is_valid(raise_exception=True):
-                                new_image = image_serializer.save()
-                                current_image_ids.add(str(new_image.id))
-                else:
-                    # Create new image only if image_is_file is True (it's a new file upload)
-                    if image_is_file:
-                        image_serializer = ProductImageSerializer(data={**image_data, 'product': product.id})
-                        if image_serializer.is_valid(raise_exception=True):
-                            new_image = image_serializer.save()
-                            current_image_ids.add(str(new_image.id))
-
-            ProductImage.objects.filter(product=product).exclude(id__in=list(current_image_ids)).delete()
-
-            return Response(ProductSerializer(product).data)
-        else:
-            print("[Debug] Serializer is NOT valid.")
-            print("Serializer errors:", serializer.errors)
+        serializer = ProductSerializer(product, data=mutable_data, context=context, partial=True)
+        if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        product = serializer.save()
+
+        # --- Update or create variations ---
+        current_variation_ids = set()
+        for variation in variations_data:
+            data = variation.copy()
+            variation_id = data.pop('id', None)
+            data.pop('image_file_key', None)
+
+            if variation_id:
+                try:
+                    instance = ProductVariation.objects.get(id=variation_id, product=product)
+                    v_serializer = ProductVariationSerializer(instance, data=data, partial=True)
+                    if v_serializer.is_valid(raise_exception=True):
+                        v_serializer.save()
+                    current_variation_ids.add(variation_id)
+                except ProductVariation.DoesNotExist:
+                    v_serializer = ProductVariationSerializer(data={**data, 'product': product.id})
+                    if v_serializer.is_valid(raise_exception=True):
+                        new_var = v_serializer.save()
+                        current_variation_ids.add(str(new_var.id))
+            else:
+                v_serializer = ProductVariationSerializer(data={**data, 'product': product.id})
+                if v_serializer.is_valid(raise_exception=True):
+                    new_var = v_serializer.save()
+                    current_variation_ids.add(str(new_var.id))
+
+        #ProductVariation.objects.filter(product=product).exclude(id__in=current_variation_ids).delete()
+
+        # --- Update or create images (disabled) ---
+        # if images_data:
+        #     current_image_ids = set()
+        #     for image in images_data:
+        #         data = image.copy()
+        #         image_id = data.pop('id', None)
+        #         image_file = data.get('image')
+        #         is_file = isinstance(image_file, (InMemoryUploadedFile, UploadedFile))
+
+        #         if image_id:
+        #             try:
+        #                 instance = ProductImage.objects.get(id=image_id, product=product)
+        #                 if not is_file:
+        #                     data.pop('image', None)
+        #                 i_serializer = ProductImageSerializer(instance, data=data, partial=True)
+        #                 if i_serializer.is_valid(raise_exception=True):
+        #                     i_serializer.save()
+        #                 current_image_ids.add(image_id)
+        #             except ProductImage.DoesNotExist:
+        #                 if is_file:
+        #                     i_serializer = ProductImageSerializer(data={**data, 'product': product.id})
+        #                     if i_serializer.is_valid(raise_exception=True):
+        #                         new_img = i_serializer.save()
+        #                         current_image_ids.add(str(new_img.id))
+        #         else:
+        #             if is_file:
+        #                 i_serializer = ProductImageSerializer(data={**data, 'product': product.id})
+        #                 if i_serializer.is_valid(raise_exception=True):
+        #                     new_img = i_serializer.save()
+        #                     current_image_ids.add(str(new_img.id))
+
+        #     ProductImage.objects.filter(product=product).exclude(id__in=current_image_ids).delete()
+
+        return Response(ProductSerializer(product).data)
+
 
 class AcceptProduct(APIView):
     permission_classes = [AllowAny]

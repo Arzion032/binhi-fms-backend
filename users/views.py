@@ -179,6 +179,7 @@ def update_member_profile(request, user_id):
 
     return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_user_with_profile(request, user_id):

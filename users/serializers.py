@@ -34,6 +34,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Add custom claims
         token["email"] = user.email
         token["role"] = user.role
+        if user.association:
+            token["association_id"] = str(user.association.id)
+            token["association_name"] = user.association.name
+        else:
+            token["association_id"] = None
+            token["association_name"] = None
         return token
         
     def validate(self, attrs):
@@ -44,9 +50,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "user_id": str(self.user.id),
             "email": self.user.email,
             "role": self.user.role,
+            "association": {
+                "id": str(self.user.association.id) if self.user.association else None,
+                "name": self.user.association.name if self.user.association else None,
+            }
         })
         
+        print(data)
+        
         return data
+
     
 class AddressSerializer(serializers.ModelSerializer):
     class Meta:

@@ -15,6 +15,7 @@ from rest_framework.decorators import action
 from django.db.models import Count
 from .serializers import OrderItemSerializer, OrderStatusHistorySerializer, MarketTransactionSerializer
 
+"""
 class ConfirmCheckoutView(APIView):
     permission_classes = [AllowAny]
     
@@ -137,6 +138,8 @@ class ConfirmCheckoutView(APIView):
             "orders": response_orders
         }, status=status.HTTP_201_CREATED)
         
+"""
+        
 class OrderHistoryView(APIView):
     def get(self, request):
         if not request.user.is_authenticated or request.user.is_superuser:
@@ -166,7 +169,7 @@ class OrderHistoryView(APIView):
                 'payment_method': order['payment_method'],
                 'orderDate': order['created_at'],
                 'items': items,
-                'product': product_info,  # always present!
+                'product': product_info,  
                 'sellerName': '',
                 'sellerProfile': '',
                 'deliveryAddress': {
@@ -175,6 +178,7 @@ class OrderHistoryView(APIView):
                     'address': order['shipping_address'],
                 },
                 'payment_status': order.get('payment_status', 'Pending'),
+                'buyer_full_name': order.get('buyer_full_name', '')
             }
             order_history.append(order_data)
 

@@ -23,13 +23,13 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
-    buyer = UserSerializer(read_only=True)
+    #buyer = UserSerializer(read_only=True)
     payment_status = serializers.SerializerMethodField()  # <-- ADD THIS
-
+    buyer_full_name = serializers.SerializerMethodField()
     class Meta:
         model = Order
         fields = [
-            'id', 'order_identifier', 'buyer', 'status', 'total_price', 'shipping_address', 
+            'id', 'order_identifier', 'buyer', 'buyer_full_name', 'status', 'total_price', 'shipping_address', 
             'payment_method', 'created_at', 'updated_at', 'items', 'status_history', 'payment_status'
         ]
 
@@ -38,6 +38,12 @@ class OrderSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'transaction') and obj.transaction:
             return obj.transaction.status.capitalize()
         return "Pending"
+
+    def get_buyer_full_name(self, obj):
+        try:
+            return obj.buyer.profile.full_name
+        except AttributeError:
+            return ""
 
 
 class MarketTransactionSerializer(serializers.ModelSerializer):

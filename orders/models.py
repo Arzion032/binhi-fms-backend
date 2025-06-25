@@ -4,7 +4,6 @@ from products.models import Product, ProductVariation
 from django.utils import timezone
 from users.models import CustomUser
 import uuid, string, random
-   
     
 class Order(models.Model):
     STATUS_CHOICES = (
@@ -45,6 +44,9 @@ class Order(models.Model):
             self.order_identifier = f'{formatted_date}{random_string}'
         
         super().save(*args, **kwargs)
+        
+
+        
 
     def __str__(self):
         return f'Order {self.id} by {self.buyer.username}'
