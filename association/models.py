@@ -1,23 +1,25 @@
 from django.db import models
 import uuid
-from users.models import CustomUser
+
 
 def generate_farmer_code(association):
-    # Take first 3 uppercase letters of association name
+    # Take abbreviation
     abbr = ''.join(word[0] for word in association.name.split()[:3]).upper()
 
-    # Count current farmers in this association
-    count = Farmer.objects.filter(association=association).count() + 1
+    # Increment the last number and save
+    association.last_farmer_number += 1
+    association.save()
 
-    return f"{abbr}{count:03d}"  # Pads with zeros, e.g. BGR001
+    return f"{abbr}-{association.last_farmer_number:03d}"
 
 class Association(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    last_farmer_number = models.IntegerField(default=0)
     name = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
-    barangay = models.CharField(max_length=100)
+    barangay = models.CharField(max_length=100, blank=True, null=True)
     president = models.ForeignKey(
-        CustomUser,
+        'users.CustomUser',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -31,6 +33,9 @@ class Association(models.Model):
     def __str__(self):
         return self.name
 
+
+from datetime import date
+from django.db import models
 
 class Farmer(models.Model):
     # Choices
@@ -50,8 +55,7 @@ class Farmer(models.Model):
     # Use farmer_code as primary key
     id = models.CharField(max_length=50, primary_key=True)
     full_name = models.CharField(max_length=255)
-    association = models.ForeignKey(Association, on_delete=models.CASCADE, related_name='farmers')
-    age = models.PositiveIntegerField()
+    association = models.ForeignKey('Association', on_delete=models.CASCADE, related_name='farmers')
     birthday = models.DateField()
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     civil_status = models.CharField(max_length=10, choices=CIVIL_STATUS_CHOICES, blank=True, null=True)
@@ -68,4 +72,14 @@ class Farmer(models.Model):
         if not self.id:
             self.id = generate_farmer_code(self.association)
         super().save(*args, **kwargs)
+
+    @property
+    def age(self):
+        today = date.today()
+        if self.birthday:
+            return today.year - self.birthday.year - (
+                (today.month, today.day) < (self.birthday.month, self.birthday.day)
+            )
+        return None
+
 

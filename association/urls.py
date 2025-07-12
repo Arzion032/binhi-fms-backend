@@ -13,5 +13,5 @@ urlpatterns = [
 
     # Farmers
     path('farmers/', FarmerListCreateView.as_view(), name='farmer-list-create'),
-    path('farmers/<uuid:pk>/', FarmerRetrieveUpdateDeleteView.as_view(), name='farmer-detail'),
+    path('farmers/<str:pk>/', FarmerRetrieveUpdateDeleteView.as_view(), name='farmer-detail'),
 ]

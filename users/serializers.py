@@ -31,28 +31,31 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        # Add custom claims
+
         token["email"] = user.email
         token["role"] = user.role
-        if user.association:
-            token["association_id"] = str(user.association.id)
-            token["association_name"] = user.association.name
-        else:
-            token["association_id"] = None
-            token["association_name"] = None
+
+        association = getattr(user, "association", None)
+
+        token["association_id"] = str(association.id) if association else None
+        token["association_name"] = association.name if association else None
+        token["association_barangay"] = association.barangay if association else None
+
         return token
         
     def validate(self, attrs):
         data = super().validate(attrs)
-        
-        # Add extra responses here
+        association = getattr(self.user, "association", None)
+
         data.update({
             "user_id": str(self.user.id),
             "email": self.user.email,
             "role": self.user.role,
+            "username": self.user.username,
             "association": {
-                "id": str(self.user.association.id) if self.user.association else None,
-                "name": self.user.association.name if self.user.association else None,
+                "id": str(association.id) if association else None,
+                "name": association.name if association else None,
+                "barangay": association.barangay if association else None,
             }
         })
         
